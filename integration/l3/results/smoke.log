@@ -1,0 +1,32 @@
+[init] created Job l3-train-job parallelism=160
+[init] created Deployment l3-infer-svc replicas=40
+[init] waiting running pods: train 0/160  infer 0/40
+[init] waiting running pods: train 145/160  infer 38/40  OK
+[init] initial bring-up complete: train=145 infer=38
+[t=   0 min=  0.0] Rule3: inference healthy, returning 1 GPU to Training (145->155) | qps=     203 p95= 176.7 RUNNING    | train 145->155 infer 38->28
+[t= 122 min= 10.2] Rule1: SLO violation (overload confirmed) -> reclaim 1 GPU (Training 155->145) | qps=     375 p95= 338.0 OVERLOADED | train 155->145 infer 28->38
+[t= 179 min= 14.9] Rule1: SLO violation (overload confirmed) -> reclaim 1 GPU (Training 145->135) | qps=     496 p95= 318.1 OVERLOADED | train 145->135 infer 38->48
+[t= 216 min= 18.0] Rule1: SLO violation (overload confirmed) -> reclaim 1 GPU (Training 135->125) | qps=     623 p95= 314.4 OVERLOADED | train 135->125 infer 48->58
+
+=== L3 M2 运行摘要 ===
+{
+  "config": "l3_smoke.yaml",
+  "total_gpus": 200,
+  "tick_seconds": 5,
+  "ticks": 240,
+  "seed": 42,
+  "final_train": 125,
+  "final_infer": 58,
+  "gpu_h_train": 48.5,
+  "gpu_h_infer": 12.1,
+  "gpu_h_total": 60.7,
+  "slo_violation_ticks": 18,
+  "slo_violation_pct": 7.5,
+  "moves_down": 3,
+  "moves_up": 1,
+  "peak_p95_ms": 343.9,
+  "max_train_transfer": 35,
+  "min_actual_train": 125,
+  "max_actual_infer": 58
+}
+[done] 记录已写: /opt/l3-controller/run_smoke.json

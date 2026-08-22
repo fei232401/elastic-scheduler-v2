@@ -1,0 +1,61 @@
+# L3 · 万卡场景配置 —— 决策引擎在 10k GPU 模拟集群上的回放配置
+#
+# 与 config/default.yaml 的关系（缩放依据，可深入）：
+#   - mock 池 = 8 GPU；L3 池 = 10,000 GPU → 池放大 1250×。
+#   - 决策引擎/效应模型/潮汐生成器【全部复用零改动】；只调数字（池尺寸、步长、流量幅值）。
+#   - 语义保持：training 初始 80%（mock 6/8=75%）、min 40%（mock 1/8=12.5%，这里刻意提高
+#     到 40% 以让"训练进度保护"更明显）、capacity=10 qps/卡（同 mock）。
+#   - max_scale_step=500 GPU = 池的 5%（mock 的 ±1/8=12.5% 更保守——缩放时按比例缩小步长）。
+#     min_gpu_hold=24 tick 不变（改配额后 2 分钟不动）。
+#   - 流量 schedule = mock 各点 ×1000（池放大 → 容量同比例放大 → 利用率曲线形状不变）。
+#     峰值 60k qps → 需要 inference 6000 卡（cap=10×6000=60k）→ 训练 8000→4000（正好触到 min）。
+#   - 确定性：seed=42 + jitter 0.05，与 mock 同源（M4 三列矩阵同 seed → 流量完全一致，公平对比）。
+# 诚实边界：inference.capacity_per_gpu=10 仍是 mock 效应模型值；L2 实测校准值在 M3 替换
+# （M3 效果模型 = L2 曲线 × 实际分配）。本文件只描述"决策+平台原语在万卡上成立"。
+
+simulation:
+  total_gpus: 10000
+  tick_seconds: 5          # 与 mock 相同：1 tick = 5s（M2 controller 的墙钟推进速度由 --tick-wall 控制）
+  duration_ticks: 840      # 70 min 潮汐周期
+  seed: 42
+
+training:
+  initial_gpu: 8000
+  min_gpu: 4000            # 训练进度保护地板（占池 40%）
+  base_throughput: 15
+  scaling_exponent: 0.85
+  max_allowed_slowdown: 2.0   # 降到 4000 卡时 slowdown = (8000/4000)^0.85 = 1.80 ≤ 2.0（允许到地板）
+
+inference:
+  capacity_per_gpu: 10     # 每卡 10 qps（mock 效应模型值，M3 换 L2 校准）
+  slo_p95_ms: 300
+  overload_trigger_ticks: 3
+  recovery_trigger_ticks: 5
+  p95_base_ms: 200
+  p95_overload_ms: 900
+
+scheduler:
+  interval_ticks: 1
+  max_scale_step: 500      # "1 步" = 池的 5%（比 mock 的 12.5% 更保守，10k 池下 pod 变更可控）
+  min_gpu_hold_duration_ticks: 24
+  approach_ratio: 0.8
+  healthy_ratio: 0.6
+
+traffic:
+  type: custom
+  # mock schedule ×1000；峰值 60k qps
+  schedule:
+    - {min: 0,  qps: 10000}
+    - {min: 5,  qps: 12000}
+    - {min: 10, qps: 18000}
+    - {min: 15, qps: 25000}
+    - {min: 20, qps: 35000}
+    - {min: 25, qps: 45000}
+    - {min: 30, qps: 55000}
+    - {min: 35, qps: 60000}
+    - {min: 40, qps: 55000}
+    - {min: 45, qps: 40000}
+    - {min: 50, qps: 25000}
+    - {min: 60, qps: 15000}
+    - {min: 70, qps: 10000}
+  jitter_ratio: 0.05

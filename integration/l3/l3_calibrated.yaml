@@ -1,0 +1,60 @@
+# L3 M3 · 校准配置 —— L2 实测曲线替换 mock 效应模型常数(深入:每个数字的来历)
+#
+# 与 l3_default.yaml 的唯一差异 = 推理效果模型从"mock 估算值"换成"L2 实测锚点":
+#   - capacity_per_gpu=10      : L2 验证(4090 满负荷 1229.1 decode t/s ÷ 123.5 avg tokens ≈ 9.95 req/s,
+#                                 experiments/results/calibrate_train_infer_contention.json 强度=0 行)
+#   - p95_base_ms=10           : 真实低载 TTFT(R2 实测 HTTP 5.27ms;争抢校准低并发 ~20-50ms → 取 10ms)
+#   - p95_overload_ms=3000     : 真实饱和 TTFT(链式闭环最坏被逮 19.7s;3000ms 是保守下界)
+#   - slo_p95_ms=1000          : TTFT ≤ 1s(对齐链式闭环口径,非调目标;链闭环 static 78.7% 同口径)
+# 诚实边界:延迟仍是模型推(KWOK 不跑推理),但模型锚点是 4090 实测(证据 A)两级证据链。
+
+simulation:
+  total_gpus: 10000
+  tick_seconds: 5
+  duration_ticks: 840
+  seed: 42
+
+training:
+  initial_gpu: 8000
+  min_gpu: 4000
+  base_throughput: 15
+  scaling_exponent: 0.85
+  max_allowed_slowdown: 2.0
+
+inference:
+  capacity_per_gpu: 10      # L2 验证 ≈9.95 req/s
+  slo_p95_ms: 1000          # TTFT ≤ 1s(链式闭环口径)
+  overload_trigger_ticks: 3
+  recovery_trigger_ticks: 5
+  p95_base_ms: 10           # 真实低载 TTFT
+  p95_overload_ms: 3000     # 真实饱和 TTFT(保守下界)
+
+scheduler:
+  interval_ticks: 1
+  max_scale_step: 500
+  min_gpu_hold_duration_ticks: 24
+  approach_ratio: 0.8
+  healthy_ratio: 0.6
+  # predictive(M4,复用 Experiment E 的 EMA 预夺):
+  ema_alpha: 0.3
+  predict_preempt_ratio: 0.6
+  pred_error_std: 0.0
+
+traffic:
+  type: custom
+  # 与 l3_default 完全一致(seed 42 公平对比;峰值 60k qps → 需 6000 推理卡,弹性可达)
+  schedule:
+    - {min: 0,  qps: 10000}
+    - {min: 5,  qps: 12000}
+    - {min: 10, qps: 18000}
+    - {min: 15, qps: 25000}
+    - {min: 20, qps: 35000}
+    - {min: 25, qps: 45000}
+    - {min: 30, qps: 55000}
+    - {min: 35, qps: 60000}
+    - {min: 40, qps: 55000}
+    - {min: 45, qps: 40000}
+    - {min: 50, qps: 25000}
+    - {min: 60, qps: 15000}
+    - {min: 70, qps: 10000}
+  jitter_ratio: 0.05

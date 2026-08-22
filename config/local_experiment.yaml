@@ -1,0 +1,99 @@
+# Local 统一实验（Phase 3.2 Step 10）—— 真实 workload 跑网络受限场景。
+#
+# 设计目标（镜像 Mock 的 Experiment B，让 Mock vs Local 可比）：
+#   - 推理初始 4 卡（EMULATED 容量 4×563.3 ≈ 2253 qps），峰值 1700 qps
+#     → GPU 有充足闲置容量（util 0.75）＝ Finding B 前提「GPU 有空闲」；
+#   - 网络深度受限：训练带宽曲线压平（scale 0.2）→ 缩训练只释放 100 Mbps，
+#     而每卡推理带宽 600 Mbps → 任何扩容都是净增网络需求（spec §17 闸门拦截）；
+#   - 每卡推理带宽 600×4=2400 + 训练 280 已超过容量 2200 → 网络「早已拥塞」
+#     （spec §18 #6 失败案例）—— 拥塞延迟把 EMULATED P95 推过 SLO。
+#
+# 与 Mock 的关键差异（Reality Gap，诚实标注）：
+#   - tick 是真实 wall-clock：advance 真实 HTTP 负载跑 tick_seconds，advance_training
+#     真实 PyTorch 训练跑 tick_seconds；本文件用压缩潮汐（~75s）控制实验时长；
+#   - GPU 延迟带窄（base 5.27ms vs SLO 15ms），GPU 单独永不触发 SLO —— 过载信号
+#     完全来自网络（EMULATED 延迟模型 + R3 已验证真实 netem 抬升）。Mock 的 GPU
+#     base 200ms/SLO 300ms 还能靠 GPU 触发，Local 不能 —— 这是要如实报告的 Gap；
+#   - 训练吞吐/容量模型 = R2/R1 实测校准（REAL）× 虚拟多卡缩放（EMULATED）。
+
+simulation:
+  total_gpus: 8
+  tick_seconds: 2.5          # 真实秒/tick（每个 tick 真实推理+训练各跑这么久）
+  duration_ticks: 30         # 30 tick ≈ 75s 真实时间（压缩潮汐）
+  seed: 42
+
+training:
+  total_work: 100000000      # 足够大，实验期间不会 COMPLETED
+  initial_gpu: 4
+  min_gpu: 1
+  scaling_exponent: 0.85     # EMULATED 假设（Step 9 校准：T1 REAL × g^0.85 EMULATED）
+  max_allowed_slowdown: 3.0
+
+inference:
+  slo_p95_ms: 15             # DESIGN 参数（R2）
+  overload_trigger_ticks: 2
+  recovery_trigger_ticks: 3
+  capacity_per_gpu: 563.3    # R2 校准（EMULATED ×g）
+  base_p95_ms: 5.27          # R2 实测
+  overload_p95_ms: 6.46      # R2 实测
+  saturation_qps: 1126.7     # R2 实测
+
+scheduler:
+  interval_ticks: 1
+  max_scale_step: 1
+  min_gpu_hold_duration_ticks: 6     # 压缩：30 tick 内可观察多次决策
+  approach_ratio: 0.8
+  healthy_ratio: 0.6
+  cooldown_ticks: 6
+  preempt_min_training: 1
+
+network:
+  total_bandwidth_mbps: 2200
+  base_latency_ms: 2
+  latency_gain_per_overload: 250
+  congestion_start_util: 0.5
+  training_bw_scale: 0.2     # 训练带宽曲线平 → 释放带宽微薄（闸门拦截前提）
+  train_bw_coeff_a: 50
+  train_bw_coeff_b: 150
+  bw_per_qps: 1.4            # 本地 QPS 尺度（~300-1700）远大于 Mock（10-60）
+  per_gpu_infer_bw: 600      # 高边际成本 → 扩容 = 净增带宽（spec §17）
+  training_penalty_per_unit: 0.3
+  max_training_penalty: 0.7
+
+traffic:
+  type: custom
+  # 压缩潮汐（min 为小数分钟；1.25 min = 30 tick × 2.5s）：LOW→PEAK→LOW
+  schedule:
+    - {min: 0.0,  qps: 300}
+    - {min: 0.3,  qps: 300}
+    - {min: 0.5,  qps: 1700}
+    - {min: 0.85, qps: 1700}
+    - {min: 1.1,  qps: 300}
+    - {min: 1.25, qps: 300}
+  jitter_ratio: 0.0          # 本地真实测量本身有噪声，不叠加确定性抖动
+
+local:
+  device: auto               # cuda（本机 RTX 4070）
+  training:
+    # 真实 PyTorch MLP（R1 校准，compute-bound，util≈98%）
+    input_dim: 256
+    hidden_dim: 1024
+    layers: 4
+    output_dim: 10
+    batch_size: 256
+    total_work: 100000000
+  inference:
+    host: 127.0.0.1
+    port: 8701
+    input_dim: 64            # R2 校准模型
+    hidden_dim: 256
+    layers: 3
+    output_dim: 10
+    generator_workers: 24
+    max_batch_size: 16
+    flush_interval_ms: 1.0
+    capacity_per_gpu: 563.3  # R2 校准
+    base_p95_ms: 5.27
+    overload_p95_ms: 6.46
+    saturation_qps: 1126.7
+    slo_p95_ms: 15.0

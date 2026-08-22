@@ -1,0 +1,43 @@
+# L3 M1 · 弹性 Job 演示(验证 ElasticJobsViaWorkloadSlices 机制)
+#
+# 用法(在已装好 Kueue 的集群上):
+#   kubectl apply -f clusterqueue.yaml
+#   kubectl apply -f elastic-job-demo.yaml
+#   kubectl get workloads.kueue.x-k8s.io      # 看 workload 被 admit
+#   kubectl get pods | grep elastic-train     # 看 pod 被调度到假节点
+#
+# 弹性验证:
+#   上调并行度:kubectl patch job elastic-train-job --type merge -p '{"spec":{"parallelism":40}}'
+#     → 出现带 workload-slice-replacement-for 的新 Workload 切片
+#   下调并行度:kubectl patch job elastic-train-job --type merge -p '{"spec":{"parallelism":10}}'
+#     → 直接改现有 Workload 的 pod 计数,不新建切片
+#
+# 关键点:
+#   - 注解 kueue.x-k8s.io/elastic-job: "true" 是弹性开关(无此注解=普通 Job,suspend 机制)
+#   - label kueue.x-k8s.io/queue-name 指向 LocalQueue
+#   - 请求 nvidia.com/gpu=1,KWOK 假节点 8 GPU/节点,调度到 type=gpu-node
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: elastic-train-job
+  namespace: default
+  labels:
+    kueue.x-k8s.io/queue-name: lq-train-infer
+  annotations:
+    kueue.x-k8s.io/elastic-job: "true"   # 弹性开关
+spec:
+  parallelism: 20
+  completions: 200
+  suspend: true                          # Kueue 控制 suspend(admit 后解除)
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: registry.k8s.io/pause:3.10   # KWOK 不拉镜像,任意可用
+          resources:
+            requests:
+              nvidia.com/gpu: "1"             # 每 pod 1 GPU → 20 pod = 20 GPU
+            limits:
+              nvidia.com/gpu: "1"             # 扩展资源不可超卖:request==limit
+      restartPolicy: Never

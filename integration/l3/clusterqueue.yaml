@@ -1,0 +1,40 @@
+# L3 M1 · Kueue 弹性配额对象
+# 目标:在 10k GPU 模拟集群上,让 Kueue 对 batch/v1.Job 做"运行中 Job 并行度弹性伸缩"。
+#
+# 弹性关键点(可深入):
+#   - v0.19 的 ResourceQuota 只有 nominalQuota + lendingLimit(cohort 借用),没有 guaranteedQuota;
+#     弹性由 Job 注解 kueue.x-k8s.io/elastic-job: "true" 触发(ElasticJobsViaWorkloadSlices,beta 默认开)。
+#   - 允许已 admit 的 Job 运行中伸缩 parallelism,而不是 suspend→改→resume。
+#   - 伸缩实现 = Workload 切片链:并行度上调 → 新建替换切片(workload-slice-replacement-for);
+#     下调 → 直接改现有 Workload 的 pod 计数。
+# 10k = 1250 节点 × 8 GPU(KWOK 假节点,status.capacity/allocatable 都写满)。
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ResourceFlavor
+metadata:
+  name: gpu-flavor
+spec:
+  nodeLabels:
+    type: gpu-node            # 只落到 1250 个 gpu 假节点上
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: cq-train-infer
+spec:
+  namespaceSelector: {}
+  resourceGroups:
+    - coveredResources: ["nvidia.com/gpu"]
+      flavors:
+        - name: gpu-flavor
+          resources:
+            - name: "nvidia.com/gpu"
+              nominalQuota: 10000        # 全集群 GPU(弹性由 annotation 触发,非配额字段)
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: default
+  name: lq-train-infer
+spec:
+  clusterQueue: cq-train-infer

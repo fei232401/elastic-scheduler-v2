@@ -1,0 +1,52 @@
+# L3 · 冒烟配置 —— 在 10k 集群上先跑一遍【缩小 50 倍】的闭环，验证机制后跑 l3_default
+#
+# 目的：快速验证 controller 全链路（创建 Job/Deployment → 潮汐 → 决策 → patch → Kueue 弹性
+# → 读回实际分配）不出错，再放全量。形状与 l3_default 完全一致，只是所有 GPU/qps 数字 ÷50。
+# 池 200：训练初始 160、min 80、推理 40；峰值 1200 qps → 需推理 120 卡 → 训练 160→80（触到地板）。
+# 冒烟 20 分钟够看完整一次过载→让渡→恢复。跑通后可直接删本文件，文档只保留 l3_default。
+
+simulation:
+  total_gpus: 200
+  tick_seconds: 5
+  duration_ticks: 240      # 20 min（冒烟够看一个完整峰值）
+  seed: 42
+
+training:
+  initial_gpu: 160
+  min_gpu: 80
+  base_throughput: 15
+  scaling_exponent: 0.85
+  max_allowed_slowdown: 2.0
+
+inference:
+  capacity_per_gpu: 10
+  slo_p95_ms: 300
+  overload_trigger_ticks: 3
+  recovery_trigger_ticks: 5
+  p95_base_ms: 200
+  p95_overload_ms: 900
+
+scheduler:
+  interval_ticks: 1
+  max_scale_step: 10       # 池的 5%（同 l3_default 的相对步长）
+  min_gpu_hold_duration_ticks: 24
+  approach_ratio: 0.8
+  healthy_ratio: 0.6
+
+traffic:
+  type: custom
+  schedule:                # l3_default ÷50
+    - {min: 0,  qps: 200}
+    - {min: 5,  qps: 240}
+    - {min: 10, qps: 360}
+    - {min: 15, qps: 500}
+    - {min: 20, qps: 700}
+    - {min: 25, qps: 900}
+    - {min: 30, qps: 1100}
+    - {min: 35, qps: 1200}
+    - {min: 40, qps: 1100}
+    - {min: 45, qps: 800}
+    - {min: 50, qps: 500}
+    - {min: 60, qps: 300}
+    - {min: 70, qps: 200}
+  jitter_ratio: 0.05

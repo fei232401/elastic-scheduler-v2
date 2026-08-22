@@ -1,0 +1,70 @@
+# Experiment B —— Network-bound（网络是唯一瓶颈，GPU 有剩余）
+# 目的：验证「GPU-only 遇网络瓶颈会误判为缺 GPU → 持续扩容 → 加剧拥塞（spec Q6）；
+# Network-aware 识别 GPU 可用 ≠ 系统可承受（spec Q7），拒绝扩容」。
+# 设计：
+#   - 推理初始 4 卡（容量 40），峰值 30 QPS → 推理卡充足，GPU 不稀缺；
+#   - 训练带宽曲线压平（scale 0.2）→ 缩训练释放的带宽远小于每卡推理带宽增量（100 vs 600），
+#     任何扩容都净增加网络需求（spec §17 判定：released < delta_infer → 拒绝）；
+#   - 每卡推理带宽 600Mbps 使扩容推理会真正压满网络（网络利用率 1.6→2.3）。
+# 预期：Static/HardPreempt/Elastic 全部违约，但 Elastic/HardPreempt 白白牺牲训练且加剧拥塞；
+#       Network-aware 零切换、训练保满、拥塞不再恶化。
+
+simulation:
+  total_gpus: 8
+  tick_seconds: 5
+  duration_ticks: 840
+  seed: 42
+
+training:
+  total_work: 100000
+  initial_gpu: 4          # 推理初始 4 卡（GPU 富余）
+  min_gpu: 1
+  base_throughput: 15
+  scaling_exponent: 0.85
+  max_allowed_slowdown: 3.0
+
+inference:
+  capacity_per_gpu: 10
+  slo_p95_ms: 300
+  overload_trigger_ticks: 3
+  recovery_trigger_ticks: 5
+  p95_base_ms: 200
+  p95_overload_ms: 900
+
+scheduler:
+  interval_ticks: 1
+  max_scale_step: 1
+  min_gpu_hold_duration_ticks: 24
+  approach_ratio: 0.8
+  healthy_ratio: 0.6
+  cooldown_ticks: 30
+  preempt_min_training: 1
+
+network:
+  total_bandwidth_mbps: 2200       # 峰值需求 ~3580 → 深度拥塞（util 1.6）
+  base_latency_ms: 2
+  latency_gain_per_overload: 250
+  congestion_start_util: 0.5
+  training_bw_scale: 0.2           # 训练带宽曲线压平 → 释放带宽微薄
+  train_bw_coeff_a: 50
+  train_bw_coeff_b: 150
+  bw_per_qps: 30
+  per_gpu_infer_bw: 600            # 每卡推理带宽大 → 扩容=压网（spec §17 判定拒绝）
+  training_penalty_per_unit: 0.3
+  max_training_penalty: 0.7
+
+traffic:
+  type: custom
+  schedule:
+    - {min: 0,  qps: 10}
+    - {min: 10, qps: 15}
+    - {min: 15, qps: 22}
+    - {min: 20, qps: 28}
+    - {min: 25, qps: 30}
+    - {min: 35, qps: 30}
+    - {min: 40, qps: 25}
+    - {min: 45, qps: 18}
+    - {min: 50, qps: 12}
+    - {min: 60, qps: 10}
+    - {min: 70, qps: 10}
+  jitter_ratio: 0.05

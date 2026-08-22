@@ -1,0 +1,70 @@
+# Experiment Moderate —— 网络严重度轴：中度（exp B workload，网络容量 3200 Mbps）
+#
+# 用途：Phase 3.3 T3 网络严重度实验的「中度」端。
+# 设计：与 experiment_b_network_bound.yaml（严重端）共享全部 workload/潮汐/训练/推理参数，
+# 仅把网络容量从 2200 提高到 3200。
+#   需求曲线：离峰 ~2980（qps 10）、峰值 ~3580（qps 30）；
+#   容量 3200 → 仅在 qps ≳ 17（上升肩到下降肩，约 35-50% 的 tick）拥塞，
+#   低谷期 util < 1.0 不拥塞。这是严重度轴的中间态：拥塞是"局部的"而非"结构性的"。
+# 作用：验证 Finding C 的边界过渡——闸门在拥塞窗口内拦截、窗口外放行，
+#       network_aware 行为应介于「Mild：==elastic」与「Severe：==static」之间。
+
+simulation:
+  total_gpus: 8
+  tick_seconds: 5
+  duration_ticks: 840
+  seed: 42
+
+training:
+  total_work: 100000
+  initial_gpu: 4          # 与 exp B 相同（推理初始 4 卡）
+  min_gpu: 1
+  base_throughput: 15
+  scaling_exponent: 0.85
+  max_allowed_slowdown: 3.0
+
+inference:
+  capacity_per_gpu: 10
+  slo_p95_ms: 300
+  overload_trigger_ticks: 3
+  recovery_trigger_ticks: 5
+  p95_base_ms: 200
+  p95_overload_ms: 900
+
+scheduler:
+  interval_ticks: 1
+  max_scale_step: 1
+  min_gpu_hold_duration_ticks: 24
+  approach_ratio: 0.8
+  healthy_ratio: 0.6
+  cooldown_ticks: 30
+  preempt_min_training: 1
+
+network:
+  total_bandwidth_mbps: 3200     # 唯一变化：中度（peak 需求 3580 超出，离峰 2980 不超）
+  base_latency_ms: 2
+  latency_gain_per_overload: 250
+  congestion_start_util: 0.5
+  training_bw_scale: 0.2
+  train_bw_coeff_a: 50
+  train_bw_coeff_b: 150
+  bw_per_qps: 30
+  per_gpu_infer_bw: 600
+  training_penalty_per_unit: 0.3
+  max_training_penalty: 0.7
+
+traffic:
+  type: custom
+  schedule:
+    - {min: 0,  qps: 10}
+    - {min: 10, qps: 15}
+    - {min: 15, qps: 22}
+    - {min: 20, qps: 28}
+    - {min: 25, qps: 30}
+    - {min: 35, qps: 30}
+    - {min: 40, qps: 25}
+    - {min: 45, qps: 18}
+    - {min: 50, qps: 12}
+    - {min: 60, qps: 10}
+    - {min: 70, qps: 10}
+  jitter_ratio: 0.05
