@@ -36,13 +36,10 @@ class RealTrainingJob:
         self.total_work = float(get(lt, "total_work", get(t, "total_work", 100000)))
         self.max_allowed_slowdown = float(get(t, "max_allowed_slowdown", 3.0))
         self.scaling_exponent = float(get(lt, "scaling_exponent", get(t, "scaling_exponent", 0.85)))
-        # Step 9 校准曲线：显式 scale(g) 数据工件（g=1 REAL，g>1 EMULATED）。
-        # 提供时覆盖幂律默认；否则回退 g^scaling_exponent。
         self.calibration_curve: dict[int, float] = {
             int(k): float(v) for k, v in get(lt, "calibration_curve", {}).items()
         }
 
-        # 网络结构（小型 MLP，compute-bound：实测 util≈98%）
         self.input_dim = int(get(lt, "input_dim", 256))
         self.hidden_dim = int(get(lt, "hidden_dim", 1024))
         self.layers = int(get(lt, "layers", 4))
@@ -50,7 +47,6 @@ class RealTrainingJob:
         self.batch_size = int(get(lt, "batch_size", 256))
         self.max_steps_per_tick = int(get(lt, "max_steps_per_tick", 100_000))
 
-        # 设备：auto = cuda 优先（真实测量只在物理 GPU/CPU 上进行）
         dev = get(local, "device", "auto")
         if dev == "auto":
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -58,17 +54,15 @@ class RealTrainingJob:
             self.device = torch.device(dev)
         self._is_gpu = self.device.type == "cuda"
 
-        # 运行时状态
         self.allocated_gpu: int = self.initial_gpu
         self.progress: float = 0.0
         self.state: str = "RUNNING"
-        self._last_measured_sps: float = 0.0  # 真实单卡 samples/sec（最近一次 tick）
+        self._last_measured_sps: float = 0.0
         self._gpu_util: float = 0.0
         self._gpu_mem_mb: float = 0.0
 
         self._build_model()
 
-    # ---------------- 模型 ----------------
     def _build_model(self) -> None:
         torch.manual_seed(42)
         layers = [nn.Linear(self.input_dim, self.hidden_dim), nn.ReLU()]
@@ -78,7 +72,6 @@ class RealTrainingJob:
         self.model = nn.Sequential(*layers).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=1e-3)
 
-    # ---------------- 上报给调度器的吞吐（REAL 测量 × EMULATED 多卡缩放）----------------
     def scaling_at(self, gpus: int) -> float:
         """EMULATED 多卡缩放系数。校准曲线（Step 9）优先，否则幂律默认。"""
         if gpus <= 0:
@@ -122,7 +115,6 @@ class RealTrainingJob:
             return float("inf")
         return base / cur
 
-    # ---------------- GPU 指标（REAL 采样）----------------
     def _read_gpu_util_pct(self) -> float:
         """读取当前 GPU 利用率（0~100）。优先 torch，回退 nvidia-smi。"""
         try:
@@ -147,7 +139,6 @@ class RealTrainingJob:
             self._gpu_mem_mb = torch.cuda.memory_allocated(self.device) / (1024 * 1024)
         except Exception:
             self._gpu_mem_mb = 0.0
-        # 平均利用率：若提供循环内周期采样列表则取均值，否则取瞬时值
         if util_samples:
             self._gpu_util = sum(util_samples) / len(util_samples)
         else:
@@ -155,17 +146,15 @@ class RealTrainingJob:
 
     @property
     def gpu_utilization(self) -> float:
-        return self._gpu_util / 100.0  # 0~1
+        return self._gpu_util / 100.0
 
     @property
     def gpu_memory_mb(self) -> float:
         return self._gpu_mem_mb
 
-    # ---------------- 资源控制 ----------------
     def set_gpus(self, gpus: int) -> None:
         self.allocated_gpu = max(0, int(gpus))
 
-    # ---------------- 生命周期 ----------------
     def start(self) -> None:
         self.model.train()
 
@@ -197,14 +186,13 @@ class RealTrainingJob:
             self.optimizer.step()
             samples += self.batch_size
             steps += 1
-            # 循环内周期性采样利用率 → 平均真实利用率（比尾部瞬时值诚实）
             if self._is_gpu and time.perf_counter() - last_sample >= 0.5:
                 util_samples.append(self._read_gpu_util_pct())
                 last_sample = time.perf_counter()
 
         elapsed = time.perf_counter() - start
         self._last_measured_sps = samples / elapsed if elapsed > 0 else 0.0
-        self.progress += samples  # 真实累积样本
+        self.progress += samples
         if util_samples:
             util_samples.append(self._read_gpu_util_pct())
         self._sample_gpu_metrics(util_samples)

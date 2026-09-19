@@ -12,7 +12,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from src.runtime.base import ResourceDecision  # noqa: F401  (re-export)
+from src.runtime.base import ResourceDecision
 from src.runtime.base import RuntimeAdapter
 
 
@@ -33,7 +33,7 @@ class SchedulerContext:
     inference_overload_counter: int
     inference_recovery_counter: int
     now_s: float
-    runtime: RuntimeAdapter | None = None  # Runtime 抽象接口（网络感知/扩容闸门用，spec §17）
+    runtime: RuntimeAdapter | None = None
     extra: dict = field(default_factory=dict)
 
 

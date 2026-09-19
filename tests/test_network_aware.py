@@ -21,7 +21,6 @@ CFG = {
     },
     "training": {"initial_gpu": 4, "min_gpu": 1},
 }
-# 网络配置：scale 0.2（释放微薄），per_gpu 600（每卡推理带宽大）→ 扩容必被拒
 NET_CFG = {"network": {
     "total_bandwidth_mbps": 2200,
     "base_latency_ms": 2,
@@ -50,7 +49,7 @@ def build_adapter(cfg: dict) -> MockRuntimeAdapter:
 def net_ctx(training=4, inference=4, p95=500.0, slo=300.0, state="OVERLOADED",
             now_s=0.0, qps=30.0, cfg=None) -> SchedulerContext:
     adapter = build_adapter(cfg or {**NET_CFG, "training": CFG["training"]})
-    adapter.advance(qps)  # 网络按当前配额+流量刷新
+    adapter.advance(qps)
     return SchedulerContext(
         training_gpus=training,
         inference_gpus=inference,
@@ -74,7 +73,7 @@ class TestNetworkGate:
     def test_blocks_reclaim_when_network_saturated(self):
         """网络饱和 + 释放带宽 < 新增推理带宽 → 拒绝让渡（spec §17）。"""
         s = NetworkAwareElasticScheduler(CFG)
-        d = s.step(net_ctx())  # OVERLOADED, p95 500, 网络 util>1
+        d = s.step(net_ctx())
         assert d.changed is False
         assert "BLOCKED" in d.reason
         assert "Network-aware" in d.reason
@@ -97,7 +96,7 @@ class TestNetworkGate:
         s = NetworkAwareElasticScheduler(CFG)
         d1 = s.step(net_ctx(p95=500, now_s=0.0))
         assert d1.changed is False
-        assert s._last_change_tick is None  # 被拒后保护期未启动
+        assert s._last_change_tick is None
 
     def test_returns_gpu_when_healthy_and_network_ok(self):
         """健康 + 归还不压网 → 归还 GPU 给训练。"""

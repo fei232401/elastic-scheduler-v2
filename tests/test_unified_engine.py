@@ -19,7 +19,7 @@ def _tiny_local_cfg():
     cfg = load_config("config/local_experiment.yaml")
     cfg["simulation"]["duration_ticks"] = 2
     cfg["simulation"]["tick_seconds"] = 0.3
-    cfg["local"]["inference"]["port"] = 8799  # 固定高位端口，避免与其他测试冲突
+    cfg["local"]["inference"]["port"] = 8799
     return cfg
 
 
@@ -45,7 +45,6 @@ def test_run_experiment_local_tiny_ticks():
     s = c.summarize()
     assert s.total_ticks == 2
     assert len(c.rows) == 2
-    # 网络受限场景：拥塞延迟把 P95 推过 SLO（EMULATED 信号）
     assert s.slo_violation_ratio > 0.0
     assert s.inference_avg_p95 > cfg["inference"]["slo_p95_ms"]
 

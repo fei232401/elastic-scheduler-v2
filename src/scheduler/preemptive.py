@@ -22,7 +22,6 @@ class HardPreemptionScheduler(Scheduler):
         s = cfg.get("scheduler", {})
         self.healthy_ratio = s.get("healthy_ratio", 0.6)
         self.min_hold_ticks = s.get("min_gpu_hold_duration_ticks", 24)
-        # 让渡地板：取配置值与训练 min_gpu 的较大者（配置想压到 0 时 min_gpu 会兜底）
         self.preempt_floor = max(s.get("preempt_min_training", 1), 1)
         self._last_change_tick: int | None = None
 
@@ -44,12 +43,10 @@ class HardPreemptionScheduler(Scheduler):
                 inference_p95=p95,
             )
 
-        # min_hold 保护期
         if self._last_change_tick is not None:
             if tick - self._last_change_tick < self.min_hold_ticks:
                 return noop("min_gpu_hold: within protection window after last change")
 
-        # 高峰：一次性让渡到地板
         if ctx.inference_state == "OVERLOADED" and p95 > slo:
             floor = max(self.preempt_floor, ctx.training_min_gpu)
             if ctx.training_gpus > floor:
@@ -69,7 +66,6 @@ class HardPreemptionScheduler(Scheduler):
                 )
             return noop("HardPreempt: training already at floor")
 
-        # 恢复：一次性归还
         if (
             ctx.inference_state == "RUNNING"
             and p95 < self.healthy_ratio * slo

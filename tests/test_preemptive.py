@@ -45,10 +45,8 @@ class TestPreempt:
         """大幅变动后保护期内不再动。"""
         s = HardPreemptionScheduler(CFG)
         s.step(ctx(p95=400, slo=300, state="OVERLOADED", now_s=0.0))
-        # t=60s 仍在保护期 → 即使仍过载也不动
         d = s.step(ctx(p95=400, slo=300, state="OVERLOADED", now_s=60.0))
         assert d.changed is False
-        # t=150s 过保护期，训练已在地板 → 无动作
         d = s.step(ctx(training=1, inference=7, p95=400, slo=300,
                        state="OVERLOADED", now_s=150.0))
         assert d.changed is False
@@ -56,7 +54,7 @@ class TestPreempt:
     def test_restore_to_initial_when_healthy(self):
         """恢复健康 → 一次性归还到 initial。"""
         s = HardPreemptionScheduler(CFG)
-        s.step(ctx(p95=400, slo=300, state="OVERLOADED", now_s=0.0))  # 让渡到 1
+        s.step(ctx(p95=400, slo=300, state="OVERLOADED", now_s=0.0))
         d = s.step(ctx(training=1, inference=7, p95=100, slo=300,
                        state="RUNNING", now_s=150.0))
         assert d.changed is True

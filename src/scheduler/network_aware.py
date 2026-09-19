@@ -48,18 +48,15 @@ class NetworkAwareElasticScheduler(ElasticScheduler):
 
         runtime = ctx.runtime
         if runtime is None:
-            # 无 runtime 上下文（单测纯 ctx 场景）→ 退化为 GPU-only Elastic
             return decision
 
         net = runtime.get_network_state()
 
-        # 记录本 tick 网络利用率到决策（metrics 可回溯）
         decision.network_utilization = net.utilization
 
         if not decision.changed:
             return decision
 
-        # 网络闸门（spec §17）—— 双向校验（经 RuntimeAdapter，不碰 MockNetwork）
         feasible, detail = runtime.network_expansion_feasible(
             decision.old_training_gpu,
             decision.new_training_gpu,
@@ -69,9 +66,8 @@ class NetworkAwareElasticScheduler(ElasticScheduler):
         if feasible:
             return decision
 
-        # 被拒：回滚 _last_change_tick，视为「未变更」，下一 tick 网络有余量立即重试
         self._last_change_tick = last_change
-        if decision.delta < 0:  # 让渡给推理
+        if decision.delta < 0:
             return self._gated_noop(ctx, "Rule1: SLO violation -> reclaim 1 GPU", detail, net.utilization)
         return self._gated_noop(
             ctx, "Rule3: inference healthy -> return 1 GPU to Training", detail, net.utilization

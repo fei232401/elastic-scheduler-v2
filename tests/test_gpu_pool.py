@@ -24,7 +24,7 @@ class TestGpuPool:
     def test_free_by_ids_idempotent(self):
         pool = GpuPool(8)
         pool.alloc_gpus(2)
-        pool.free_gpus_by_ids([0, 0, 1])  # 重复释放不报错
+        pool.free_gpus_by_ids([0, 0, 1])
         assert pool.free_gpus == 8
 
 
@@ -36,15 +36,15 @@ class TestResourceManager:
 
     def test_shift_balances_total(self):
         rm = ResourceManager(total_gpus=8, initial_training=6, min_training=1)
-        rm.shift(-1)  # 训练让渡
+        rm.shift(-1)
         assert rm.state.training_gpus == 5
         assert rm.state.inference_gpus == 3
-        rm.shift(1)   # 训练收回
+        rm.shift(1)
         assert rm.state.training_gpus == 6
         assert rm.state.inference_gpus == 2
 
     def test_shift_below_min_raises(self):
         rm = ResourceManager(total_gpus=8, initial_training=2, min_training=1)
         with pytest.raises(ValueError):
-            rm.shift(-2)  # 2 - 2 = 0 < min 1
-        assert rm.state.training_gpus == 2  # 未变
+            rm.shift(-2)
+        assert rm.state.training_gpus == 2

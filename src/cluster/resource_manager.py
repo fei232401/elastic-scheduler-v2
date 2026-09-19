@@ -28,7 +28,7 @@ class ResourceManager:
         self.min_training = min_training
         self.training_gpus = initial_training
         self.inference_gpus = total_gpus - initial_training
-        self._pool.alloc_gpus(initial_training)  # 训练先占卡
+        self._pool.alloc_gpus(initial_training)
 
     @property
     def state(self) -> ResourceState:
@@ -55,7 +55,6 @@ class ResourceManager:
                 f"cannot shift: inference would be {new_inference} (total {self._pool.total})"
             )
         if delta < 0:
-            # 训练让渡：释放 n 张训练卡 → 推理占满
             self._pool.free_n(-delta)
             self._pool.alloc_gpus(-delta)
         self.training_gpus = new_training

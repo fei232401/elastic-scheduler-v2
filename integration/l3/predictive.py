@@ -12,10 +12,10 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from src.config import get  # noqa: E402
-from src.scheduler.base import ResourceDecision  # noqa: E402
-from src.scheduler.elastic import ElasticScheduler  # noqa: E402
-from experiments.predictor import EMAPredictor, EMAPredictorConfig  # noqa: E402
+from src.config import get
+from src.scheduler.base import ResourceDecision
+from src.scheduler.elastic import ElasticScheduler
+from experiments.predictor import EMAPredictor, EMAPredictorConfig
 
 
 class L3PredictiveScheduler(ElasticScheduler):
@@ -40,10 +40,9 @@ class L3PredictiveScheduler(ElasticScheduler):
         s = self.cfg.get("scheduler", {})
         threshold = s.get("predict_preempt_ratio", 0.6)
         hold = s.get("min_gpu_hold_duration_ticks", 24)
-        step = int(self.max_scale_step)  # L3: 500(与 elastic 的 Rule1/3 同一步长)
+        step = int(self.max_scale_step)
         tick = int(ctx.now_s / get(self.cfg, "simulation.tick_seconds", 5))
 
-        # 预测压力 > 阈值且训练有配额 → 提前让渡(带保护窗口,防连发)
         if (predicted > threshold and ctx.training_gpus > ctx.training_min_gpu):
             if self._last_pred_switch is None or tick - self._last_pred_switch >= hold:
                 self._last_pred_switch = tick
@@ -56,5 +55,4 @@ class L3PredictiveScheduler(ElasticScheduler):
                     reason="predict_preempt",
                     inference_p95=ctx.inference_p95_ms,
                 )
-        # 否则走 elastic 反应式(Rules 1-5)
         return super().step(ctx)

@@ -17,9 +17,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 
-# --------------------------------------------------------------------------- #
-# 统一状态视图 —— Scheduler/engine 只读这些快照，不读具体实现对象
-# --------------------------------------------------------------------------- #
 @dataclass
 class ClusterState:
     """集群资源快照（GPU 分配 + 网络容量占用）。"""
@@ -41,22 +38,22 @@ class TrainingState:
     （torch 侧采样）；Mock 填语义值（运行中=1.0，显存=0=未建模，Reality Gap 标 N/A）。
     """
 
-    status: str  # RUNNING / DEGRADED / PAUSED / COMPLETED / FAILED
+    status: str
     allocated_gpu: int
     progress: float
     remaining_work: float
     throughput: float
     estimated_completion_time: float
     network_bandwidth: float
-    gpu_utilization: float = 0.0  # workload 对其所分配 GPU 的实际使用率（0~1）
-    gpu_memory_mb: float = 0.0  # GPU 显存占用 MB；Mock 无显存模型 → 0
+    gpu_utilization: float = 0.0
+    gpu_memory_mb: float = 0.0
 
 
 @dataclass
 class InferenceState:
     """推理 workload 状态快照（§6）。"""
 
-    status: str  # RUNNING / OVERLOADED / RECOVERING
+    status: str
     allocated_gpu: int
     qps: float
     throughput: float
@@ -68,8 +65,8 @@ class InferenceState:
     slo: float
     slo_violation: bool
     network_bandwidth: float
-    gpu_utilization: float = 0.0  # 0~1；Mock 按 throughput/capacity 估算
-    gpu_memory_mb: float = 0.0  # GPU 显存占用 MB；Mock 无显存模型 → 0
+    gpu_utilization: float = 0.0
+    gpu_memory_mb: float = 0.0
 
 
 @dataclass
@@ -80,16 +77,13 @@ class NetworkState:
     demand_mbps: float
     utilization: float
     congestion_latency_ms: float
-    throughput_scale: float  # 拥塞回压后训练吞吐的折扣系数（0~1）
+    throughput_scale: float
     headroom_mbps: float
     congested: bool
-    training_bandwidth_mbps: float = 0.0  # 训练占用带宽（Local 为实测，Mock 为公式）
-    inference_bandwidth_mbps: float = 0.0  # 推理占用带宽（Local 为实测，Mock 为公式）
+    training_bandwidth_mbps: float = 0.0
+    inference_bandwidth_mbps: float = 0.0
 
 
-# --------------------------------------------------------------------------- #
-# ResourceDecision —— 一次调度决策（§8）
-# --------------------------------------------------------------------------- #
 @dataclass
 class ResourceDecision:
     """一次调度决策：新旧 GPU 配额 + 原因（含回放所需上下文）。
@@ -107,7 +101,7 @@ class ResourceDecision:
     new_inference_gpu: int
     reason: str = ""
     inference_p95: float = 0.0
-    network_utilization: float = 0.0  # 阶段二 Network-aware 预留
+    network_utilization: float = 0.0
     timestamp: float = 0.0
     scheduler: str = ""
     training_state: str = ""
@@ -135,9 +129,6 @@ class ResourceDecision:
         }
 
 
-# --------------------------------------------------------------------------- #
-# RuntimeAdapter —— 抽象接口
-# --------------------------------------------------------------------------- #
 class RuntimeAdapter(ABC):
     """运行时适配器：把「真实/模拟的集群 + workload + 网络」收敛成一个统一接口。
 
@@ -147,7 +138,6 @@ class RuntimeAdapter(ABC):
       网络闸门 → network_expansion_feasible（spec §17，供 Network-aware 用）
     """
 
-    # ---- 状态读取 ----
     @abstractmethod
     def get_cluster_state(self) -> ClusterState: ...
 
@@ -160,7 +150,6 @@ class RuntimeAdapter(ABC):
     @abstractmethod
     def get_network_state(self) -> NetworkState: ...
 
-    # ---- 资源控制 ----
     @abstractmethod
     def scale_training(self, target: int) -> None:
         """把训练配额设为 target（推理 = total - target，总量守恒）。"""
@@ -173,7 +162,6 @@ class RuntimeAdapter(ABC):
     def apply_resource_decision(self, decision: ResourceDecision) -> None:
         """原子应用一次调度决策（配额变化 + workload 同步）。"""
 
-    # ---- 网络感知（spec §17，Network-aware 调度器用）----
     @abstractmethod
     def network_expansion_feasible(
         self,
@@ -187,7 +175,6 @@ class RuntimeAdapter(ABC):
         返回 (feasible, 明细)。明细含 released/delta/net/headroom，供决策日志解释。
         """
 
-    # ---- 训练 workload 参数（scheduler 决策依赖）----
     @property
     @abstractmethod
     def training_min_gpu(self) -> int: ...

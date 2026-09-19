@@ -27,15 +27,15 @@ class TestCapacity:
 
     def test_under_capacity_p95_ok(self):
         svc = make_service()
-        svc.gpus = 3  # cap 30
-        svc.step(20)  # qps 20 <= 30
+        svc.gpus = 3
+        svc.step(20)
         assert svc.slo_violated is False
         assert svc.p95_ms < svc.slo_p95_ms
 
     def test_over_capacity_p95_spikes(self):
         svc = make_service()
-        svc.gpus = 3  # cap 30
-        svc.step(60)  # 2x overload
+        svc.gpus = 3
+        svc.step(60)
         assert svc.p95_ms > svc.slo_p95_ms
         assert svc.queue_length > 0
 
@@ -44,21 +44,21 @@ class TestHysteresis:
     def test_overload_needs_consecutive_ticks(self):
         """防抖：连续 3 tick 过载才置 OVERLOADED。"""
         svc = make_service()
-        svc.gpus = 2  # cap 20
+        svc.gpus = 2
         svc.step(40)
-        assert svc.state == InferenceState.RUNNING  # 第 1 tick，还没确认
+        assert svc.state == InferenceState.RUNNING
         svc.step(40)
-        assert svc.state == InferenceState.RUNNING  # 第 2 tick
+        assert svc.state == InferenceState.RUNNING
         svc.step(40)
-        assert svc.state == InferenceState.OVERLOADED  # 第 3 tick ✅
+        assert svc.state == InferenceState.OVERLOADED
 
     def test_transient_spike_does_not_confirm(self):
         """瞬时尖峰（1 tick）不应触发过载确认。"""
         svc = make_service()
-        svc.gpus = 3  # cap 30
-        svc.step(60)  # 尖峰 1 tick
+        svc.gpus = 3
+        svc.step(60)
         assert svc.state == InferenceState.RUNNING
-        svc.step(20)  # 立即恢复健康
+        svc.step(20)
         assert svc.state == InferenceState.RUNNING
 
     def test_recovery_needs_consecutive_healthy_ticks(self):
@@ -67,8 +67,8 @@ class TestHysteresis:
         for _ in range(3):
             svc.step(40)
         assert svc.state == InferenceState.OVERLOADED
-        svc.step(10)  # 健康
+        svc.step(10)
         assert svc.state in (InferenceState.RECOVERING, InferenceState.OVERLOADED)
-        for _ in range(4):  # 共 5 tick 健康
+        for _ in range(4):
             svc.step(10)
         assert svc.state == InferenceState.RUNNING

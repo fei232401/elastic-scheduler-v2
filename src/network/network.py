@@ -26,20 +26,16 @@ class MockNetwork:
         self.latency_gain = n.get("latency_gain_per_overload", 250)
         self.congestion_start_util = n.get("congestion_start_util", 0.5)
 
-        # 训练带宽曲线（spec §14）
         self.train_bw_scale = n.get("training_bw_scale", 1.0)
         self.train_bw_coeff_a = n.get("train_bw_coeff_a", 50)
         self.train_bw_coeff_b = n.get("train_bw_coeff_b", 150)
 
-        # 推理带宽（spec §15）
         self.per_gpu_infer_bw = n.get("per_gpu_infer_bw", 100)
         self.bw_per_qps = n.get("bw_per_qps", 20)
 
-        # 拥塞回压（spec §16）
         self.penalty_per_unit = n.get("training_penalty_per_unit", 0.3)
         self.max_training_penalty = n.get("max_training_penalty", 0.7)
 
-        # 每 tick 状态（由 update() 刷新）
         self.training_gpus: int = 0
         self.inference_gpus: int = 0
         self.qps: float = 0.0
@@ -50,7 +46,6 @@ class MockNetwork:
         self.latency_ms: float = 0.0
         self.throughput_scale: float = 1.0
 
-    # ---- 带宽函数 ----
     def training_bandwidth(self, gpus: int) -> float:
         """训练占用带宽（spec §14 表）：g=1 无带宽，g>=2 按二次曲线。"""
         if gpus < 2:
@@ -63,7 +58,6 @@ class MockNetwork:
         """推理占用带宽（spec §15）：QPS 驱动 + 每 GPU 边际足迹。"""
         return self.per_gpu_infer_bw * gpus + self.bw_per_qps * qps
 
-    # ---- 每 tick 刷新 ----
     def update(self, training_gpus: int, inference_gpus: int, qps: float) -> None:
         """按当前配额与流量刷新拥塞状态（引擎每 tick 调用）。"""
         self.training_gpus = training_gpus
@@ -76,11 +70,9 @@ class MockNetwork:
         self.overload_ratio = max(0.0, self.utilization - 1.0)
         self.congested = self.utilization > 1.0
 
-        # 拥塞延迟：利用率超过阈值后线性放大（回加到推理 P95）
         over = max(0.0, self.utilization - self.congestion_start_util)
         self.latency_ms = self.base_latency_ms + self.latency_gain * over
 
-        # 网络回压：超载后训练吞吐打折（拥塞源主要是训练流量，自身受罚）
         penalty = min(self.overload_ratio * self.penalty_per_unit, self.max_training_penalty)
         self.throughput_scale = max(0.0, 1.0 - penalty)
 
@@ -89,7 +81,6 @@ class MockNetwork:
         """当前可用带宽余量（0 = 已饱和）。"""
         return max(0.0, self.capacity_mbps - self.demand_mbps)
 
-    # ---- 网络感知判定（spec §17）----
     def expansion_feasible(
         self, old_training: int, new_training: int, old_inference: int, new_inference: int
     ) -> tuple[bool, dict]:
@@ -100,7 +91,7 @@ class MockNetwork:
         """
         released = self.training_bandwidth(old_training) - self.training_bandwidth(new_training)
         delta_infer = self.per_gpu_infer_bw * (new_inference - old_inference)
-        net = delta_infer - released  # >0 表示净新增带宽需求
+        net = delta_infer - released
         headroom = self.headroom_mbps
         detail = {
             "released_training_bw": round(released, 1),

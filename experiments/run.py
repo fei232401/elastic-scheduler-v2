@@ -17,9 +17,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from src.config import load_config  # noqa: E402
-from src.metrics.exporter import export_all  # noqa: E402
-from src.simulator.engine import SCHEDULERS, run_experiment  # noqa: E402
+from src.config import load_config
+from src.metrics.exporter import export_all
+from src.simulator.engine import SCHEDULERS, run_experiment
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXPERIMENTS = {
@@ -54,7 +54,7 @@ def _run_one(scheduler_name: str, cfg_path: str | None, results_dir: str, out: d
 
 
 def _print_table(exp_label: str, results: dict) -> None:
-    rows = list(SCHEDULERS)  # static, elastic, hard_preemption, network_aware
+    rows = list(SCHEDULERS)
     header = f"Experiment {exp_label} | SLO违率 | 平均P95 | 最大P95 | 切换 | 训练进度 | 训练sl | 网利用率均 | 网利用率峰 | 网拥塞tick"
     print(header)
     print("-" * len(header))
@@ -78,8 +78,6 @@ def main() -> None:
     ap.add_argument("--matrix", action="store_true", help="run 3 experiments x all schedulers, unified table")
     args = ap.parse_args()
 
-    # run.py 恒以 Mock runtime 运行（run_experiment 默认 mode="mock"）。
-    # 若误把 Local 配置喂进来，会静默产出 Mock 结果——显式警告，避免结果被误标为 Local。
     if args.config:
         _cfg = load_config(args.config)
         if "local" in _cfg:
@@ -88,7 +86,6 @@ def main() -> None:
                   file=sys.stderr)
 
     if args.matrix:
-        # 单实验矩阵：默认跑全部 A/B/C，可 --config 只跑指定一个
         if args.config:
             exps = {"A": pathlib.Path(args.config)}
         else:

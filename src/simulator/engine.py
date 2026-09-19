@@ -113,7 +113,6 @@ def run_experiment(
     tick_seconds = sim.get("tick_seconds", 5)
     duration_ticks = sim.get("duration_ticks", 840)
 
-    # 组建各模块（Mock/Local 组件统一经 build_runtime 包装）
     clock = Clock(duration_ticks, tick_seconds)
     runtime = build_runtime(mode, cfg, rng, seed)
     scheduler = build_scheduler(scheduler_name, cfg)
@@ -127,13 +126,10 @@ def run_experiment(
         start()
 
     while not clock.done:
-        # 1. 流量
         qps = traffic.qps_at_second(clock.now_s)
 
-        # 2. 网络 + 推理（adapter 内部：network.update → inference 推进）
         runtime.advance(qps)
 
-        # 3. 决策前状态快照 → 调度上下文（调度器看的是「决策前」的集群）
         cl = runtime.get_cluster_state()
         tr = runtime.get_training_state()
         inf = runtime.get_inference_state()
@@ -159,18 +155,14 @@ def run_experiment(
         )
         decision = scheduler.step(ctx)
 
-        # 4. 应用配额变化（经 runtime）
         if decision.changed:
             decision.timestamp = clock.now_s
             decision.scheduler = scheduler_name
             decision.training_state = tr.status
             runtime.apply_resource_decision(decision)
 
-        # 5. 推进训练（网络回压折扣吞吐，经 runtime）
         runtime.advance_training()
 
-        # 6. 采集：决策后状态（复刻原 engine 记录语义——训练/配额是 shift+step 之后的，
-        #    网络是 advance 时的 pre-shift 状态、推理 p95 是 step 计算值）
         cl2 = runtime.get_cluster_state()
         tr2 = runtime.get_training_state()
         inf2 = runtime.get_inference_state()
@@ -213,7 +205,6 @@ def run_experiment(
     if stop is not None:
         stop()
 
-    # 落盘
     collector.write_csv()
     collector.write_decisions()
     collector.write_summary()

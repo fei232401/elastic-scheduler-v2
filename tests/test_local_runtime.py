@@ -15,7 +15,6 @@ from src.scheduler.network_aware import NetworkAwareElasticScheduler
 from src.scheduler.preemptive import HardPreemptionScheduler
 from src.scheduler.static import StaticScheduler
 
-# ---------------- 最小测试桩（接线验证用；Step 3/5/7 换真实实现） ----------------
 
 CFG = {
     "simulation": {"total_gpus": 8, "tick_seconds": 5},
@@ -40,7 +39,6 @@ CFG = {
     },
 }
 
-# 网络受限 + 训练曲线平（实验 B 风格）→ 扩容闸门必拦截
 NET_BOUND_CFG = {
     **CFG,
     "training": {**CFG["training"], "initial_gpu": 4, "min_gpu": 1},
@@ -159,7 +157,6 @@ class StubInference:
             self.p50_ms = self.p95_ms * 0.6
             self.p99_ms = self.p95_ms * 1.1
             self.queue_length = int(round((qps - cap) * 2.0)) if cap > 0 else 1
-        # 网络拥塞延迟叠加（镜像 adapter 传入的 network_latency_ms）
         self.p95_ms += network_latency_ms
         self.p50_ms += network_latency_ms * 0.5
         self.p99_ms += network_latency_ms
@@ -226,14 +223,13 @@ class StubNetwork:
         """简化 §17：释放训练带宽 vs 新增推理带宽，不把网络推过容量。"""
         released = self.training_bw(old_t) - self.training_bw(new_t)
         added = (new_i - old_i) * self.per_gpu_infer_bw
-        net = released - added  # 与 Mock 同构：>0 表示释放带宽不足以覆盖新增推理带宽
+        net = released - added
         detail = {
             "released_training_bw": round(released, 1),
             "delta_inference_bw": round(added, 1),
             "net_bandwidth_delta": round(net, 1),
             "headroom_mbps": round(self.headroom_mbps, 1),
         }
-        # 等价于 Mock 的 delta_infer - released <= headroom（净新增带宽需求 <= 余量）
         return net >= -self.headroom_mbps, detail
 
 
@@ -290,7 +286,6 @@ def run_ticks(adapter: LocalRuntimeAdapter, scheduler, qps_seq: list[float]) -> 
     return decisions
 
 
-# ---------------- 状态读取委托 ----------------
 
 class TestLocalStateReads:
     def test_cluster_state_reports_allocations(self):
@@ -302,7 +297,7 @@ class TestLocalStateReads:
 
     def test_training_state_delegates_to_workload(self):
         a = build_adapter()
-        a.advance_training()  # 一个 tick 的训练
+        a.advance_training()
         tr = a.get_training_state()
         assert tr.status == "RUNNING" and tr.allocated_gpu == 6
         assert tr.progress > 0.0
@@ -310,10 +305,10 @@ class TestLocalStateReads:
 
     def test_inference_state_delegates_after_serve(self):
         a = build_adapter()
-        a.advance(60.0)  # 超容量 → P95 拉高
+        a.advance(60.0)
         inf = a.get_inference_state()
         assert inf.qps == 60.0
-        assert inf.p95 > inf.slo  # 过载
+        assert inf.p95 > inf.slo
         assert inf.slo_violation is True
 
     def test_network_state_reports_demand_and_split(self):
@@ -325,7 +320,6 @@ class TestLocalStateReads:
         assert abs(nt.training_bandwidth_mbps + nt.inference_bandwidth_mbps - nt.demand_mbps) < 1e-6
 
 
-# ---------------- 资源控制 ----------------
 
 class TestLocalControl:
     def test_scale_training_preserves_conservation(self):
@@ -358,7 +352,7 @@ class TestLocalControl:
     def test_network_expansion_feasible_delegates(self):
         a = build_adapter()
         feasible, detail = a.network_expansion_feasible(6, 5, 2, 3)
-        assert feasible is True  # 容量富余
+        assert feasible is True
         assert "released_training_bw" in detail
 
     def test_training_params_exposed(self):
@@ -371,11 +365,10 @@ class TestLocalControl:
 
     def test_start_stop_is_safe_without_workload_lifecycle(self):
         a = build_adapter()
-        a.start()  # 桩无 start/stop → getattr 默认跳过
+        a.start()
         a.stop()
 
 
-# ---------------- 四策略 × Local adapter 端到端（Gate 4 接线证明） ----------------
 
 class TestStrategiesWithLocalRuntime:
     def test_static_never_changes(self):
@@ -405,11 +398,11 @@ class TestStrategiesWithLocalRuntime:
     def test_network_aware_gate_blocks_when_saturated(self):
         a = build_adapter(NET_BOUND_CFG)
         s = NetworkAwareElasticScheduler(CFG)
-        run_ticks(a, s, [30.0] * 10)  # 不过载，配额不动；闸门在富余场景外应拦截
+        run_ticks(a, s, [30.0] * 10)
         cl = a.get_cluster_state()
         assert cl.allocated_training_gpu == 4 and cl.allocated_inference_gpu == 4
         feasible, _ = a.network_expansion_feasible(4, 3, 4, 5)
-        assert feasible is False  # 释放带宽 < 新增推理带宽 → 拦截
+        assert feasible is False
 
     def test_network_aware_allows_when_network_abundant(self):
         a = build_adapter(CFG)

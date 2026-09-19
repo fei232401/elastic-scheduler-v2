@@ -43,7 +43,6 @@ class MockInferenceService:
         self._overload_counter = 0
         self._recovery_counter = 0
 
-    # ---- capacity & latency ----
     @property
     def capacity_qps(self) -> float:
         return self.capacity_per_gpu * self.gpus
@@ -64,7 +63,6 @@ class MockInferenceService:
             queue = 0
         else:
             overload_ratio = qps / cap
-            # 非线性：超载越狠 P95 越陡
             p95 = self.p95_base_ms + (self.p95_overload_ms - self.p95_base_ms) * min(
                 1.0, (overload_ratio - 1.0) ** 1.5
             )
@@ -73,7 +71,6 @@ class MockInferenceService:
         p99 = p95 * (1.0 + 0.05 * max(0.0, util - 1.0))
         return (p50, min(p95, self.p95_overload_ms * 1.2), p99, queue)
 
-    # ---- lifecycle ----
     def step(self, qps: float, network_latency_ms: float = 0.0) -> None:
         """一个 tick：喂入新 QPS，更新延迟/状态。
 
@@ -90,7 +87,6 @@ class MockInferenceService:
         self.throughput_qps = min(qps, self.capacity_qps)
         self.slo_violated = self.p95_ms > self.slo_p95_ms
 
-        # 防抖计数（spec §9 工程修正）
         if self.slo_violated:
             self._overload_counter += 1
             self._recovery_counter = 0

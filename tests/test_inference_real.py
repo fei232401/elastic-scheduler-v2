@@ -23,9 +23,9 @@ CFG = {
             "port": 8711, "input_dim": 16, "hidden_dim": 32, "layers": 2,
             "output_dim": 5, "generator_workers": 4, "max_batch_size": 8,
             "flush_interval_ms": 1.0,
-            "capacity_per_gpu": 100.0,  # 测试用小容量，便于触发
+            "capacity_per_gpu": 100.0,
             "base_p95_ms": 2.0, "overload_p95_ms": 10.0, "saturation_qps": 1000.0,
-            "slo_p95_ms": 6.0,  # 介于 base 与 overload 之间（测试用）
+            "slo_p95_ms": 6.0,
         },
     },
 }
@@ -52,13 +52,13 @@ class TestServerLifecycle:
         svc.start()
         svc.start()
         svc.stop()
-        svc.stop()  # 重复 stop 安全
+        svc.stop()
 
 
 class TestCapacityModel:
     def test_capacity_is_per_gpu_times_allocated_gpus(self):
         svc = build()
-        assert svc.allocated_gpu == 2  # total 8 - initial_training 6
+        assert svc.allocated_gpu == 2
         assert svc.capacity_qps == 200.0
 
     def test_set_gpus_affects_capacity(self):
@@ -72,30 +72,29 @@ class TestCapacityModel:
 class TestEmulatedLatencyModel:
     def test_util_below_capacity_is_healthy(self):
         svc = build()
-        svc.set_gpus(4)  # capacity 400
-        svc.serve(100.0, 0.5)  # util 0.25
+        svc.set_gpus(4)
+        svc.serve(100.0, 0.5)
         assert svc.p95_ms < svc.slo_p95_ms
         assert svc.slo_violated is False
 
     def test_util_above_capacity_violates_slo(self):
         svc = build()
-        svc.set_gpus(2)  # capacity 200
-        svc.serve(600.0, 0.6)  # util 3.0 → 逼近 overload
+        svc.set_gpus(2)
+        svc.serve(600.0, 0.6)
         assert svc.slo_violated is True
-        assert svc.p95_ms >= svc.overload_p95_ms * 0.7  # 逼近饱和上限
+        assert svc.p95_ms >= svc.overload_p95_ms * 0.7
 
     def test_network_latency_folds_into_reported_p95(self):
         svc = build()
-        svc.serve(50.0, 0.5, network_latency_ms=20.0)  # util 0.25, 无拥塞
-        assert svc.p95_ms > 20.0  # 拥塞延迟叠加进上报 P95
-        assert svc.slo_violated is True  # 真实网络拥塞驱动 SLO violation
+        svc.serve(50.0, 0.5, network_latency_ms=20.0)
+        assert svc.p95_ms > 20.0
+        assert svc.slo_violated is True
 
     def test_real_stats_kept_separately(self):
         svc = build()
         svc.serve(50.0, 0.5, network_latency_ms=20.0)
         r = svc.real_stats
         assert "p95_ms" in r and "throughput_qps" in r
-        # 真实测量不包含 EMULATED 拥塞叠加（物理真值，Reality Gap 用）
         assert r["p95_ms"] <= svc.p95_ms
 
 
@@ -103,9 +102,9 @@ class TestDebounce:
     def test_overloaded_after_trigger_ticks(self):
         svc = build()
         svc.set_gpus(2)
-        svc.serve(600.0, 0.6)  # tick 1
+        svc.serve(600.0, 0.6)
         assert svc.state != "OVERLOADED" or svc.overload_counter >= 1
-        svc.serve(600.0, 0.6)  # tick 2 → 触发
+        svc.serve(600.0, 0.6)
         assert svc.state == "OVERLOADED"
 
     def test_recovers_after_healthy_ticks(self):
@@ -114,7 +113,7 @@ class TestDebounce:
         svc.serve(600.0, 0.6)
         svc.serve(600.0, 0.6)
         assert svc.state == "OVERLOADED"
-        svc.set_gpus(4)  # 容量翻倍
+        svc.set_gpus(4)
         svc.serve(50.0, 0.5)
         svc.serve(50.0, 0.5)
         assert svc.state == "RUNNING"

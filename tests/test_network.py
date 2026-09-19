@@ -37,14 +37,13 @@ class TestTrainingBandwidth:
 
     def test_scale_linear(self):
         n = make(training_bw_scale=0.2)
-        assert n.training_bandwidth(4) == pytest.approx(280)  # 0.2*1400
+        assert n.training_bandwidth(4) == pytest.approx(280)
 
 
 class TestInferenceBandwidth:
     def test_qps_and_per_gpu(self):
         """spec §15：QPS 驱动 + 每 GPU 边际带宽。"""
         n = make()
-        # 4 卡 + 30 QPS = 600*4 + 30*30 = 2400 + 900 = 3300
         assert n.inference_bandwidth(4, 30) == pytest.approx(3300)
 
 
@@ -53,32 +52,28 @@ class TestCongestion:
         n = make(total_bandwidth_mbps=30000)
         n.update(training_gpus=6, inference_gpus=2, qps=10)
         assert n.congested is False
-        assert n.latency_ms == n.base_latency_ms  # util < start → 无额外延迟
+        assert n.latency_ms == n.base_latency_ms
         assert n.throughput_scale == 1.0
 
     def test_over_capacity_latency_and_penalty(self):
         n = make()
         n.update(training_gpus=4, inference_gpus=4, qps=30)
-        # demand = 1400 + (600*4 + 30*30) = 1400 + 3300 = 4700 > 2200
         assert n.congested is True
         assert n.utilization > 1.0
-        assert n.latency_ms > n.base_latency_ms  # 拥塞延迟叠加
-        assert n.throughput_scale < 1.0  # 回压生效
+        assert n.latency_ms > n.base_latency_ms
+        assert n.throughput_scale < 1.0
 
     def test_penalty_capped(self):
         n = make(max_training_penalty=0.7, total_bandwidth_mbps=1000)
         n.update(training_gpus=1, inference_gpus=7, qps=30)
-        # demand = 0 + (600*7 + 900) = 5100; util = 5.1; overload 4.1
-        # penalty = min(4.1*0.3, 0.7) = 0.7 → scale = 0.3
         assert n.throughput_scale == pytest.approx(0.3)
 
 
 class TestExpansionFeasible:
     def test_blocked_when_released_less_than_delta(self):
         """spec §17：缩训练释放带宽 < 扩推理新增带宽 + 无余量 → 拒绝扩容。"""
-        n = make()  # scale 1.0, per_gpu 600
+        n = make()
         n.update(training_gpus=4, inference_gpus=4, qps=30)
-        # released = 1400 - 900 = 500; delta = 600; net 100 > headroom 0
         feasible, detail = n.expansion_feasible(4, 3, 4, 5)
         assert feasible is False
         assert detail["released_training_bw"] == pytest.approx(500)
@@ -92,7 +87,7 @@ class TestExpansionFeasible:
 
     def test_flat_curve_blocks_more(self):
         """训练带宽曲线越平，释放越少，越容易被拒（Experiment B 场景）。"""
-        n = make(training_bw_scale=0.2)  # released(4→3)=100
+        n = make(training_bw_scale=0.2)
         n.update(training_gpus=4, inference_gpus=4, qps=30)
         feasible, detail = n.expansion_feasible(4, 3, 4, 5)
         assert feasible is False

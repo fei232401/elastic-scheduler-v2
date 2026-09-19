@@ -36,17 +36,16 @@ import sys
 import time
 from pathlib import Path
 
-# 仓库根入 path（本脚本位于 integration/l3/，向上两级）
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(_REPO_ROOT))
 
-from src.config import get, load_config  # noqa: E402
-from src.scheduler.elastic import ElasticScheduler  # noqa: E402
-from src.scheduler.base import SchedulerContext  # noqa: E402
-from src.workload.inference import MockInferenceService  # noqa: E402
-from src.workload.training import MockTrainingJob  # noqa: E402
-from src.workload.traffic import TrafficGenerator  # noqa: E402
-from integration.l3.predictive import L3PredictiveScheduler  # noqa: E402
+from src.config import get, load_config
+from src.scheduler.elastic import ElasticScheduler
+from src.scheduler.base import SchedulerContext
+from src.workload.inference import MockInferenceService
+from src.workload.training import MockTrainingJob
+from src.workload.traffic import TrafficGenerator
+from integration.l3.predictive import L3PredictiveScheduler
 
 NS = "default"
 TRAIN_JOB = "l3-train-job"
@@ -70,7 +69,7 @@ def build_job(cfg: dict):
         spec=client.V1JobSpec(
             parallelism=init,
             completions=COMPLETIONS,
-            suspend=True,  # Kueue admit 后解挂
+            suspend=True,
             template=client.V1PodTemplateSpec(
                 metadata=client.V1ObjectMeta(
                     labels={"kueue.x-k8s.io/queue-name": QUEUE, "app": TRAIN_JOB},
@@ -83,7 +82,7 @@ def build_job(cfg: dict):
                             image="registry.k8s.io/pause:3.10",
                             resources=client.V1ResourceRequirements(
                                 requests={"nvidia.com/gpu": "1"},
-                                limits={"nvidia.com/gpu": "1"},  # 扩展资源不可超卖
+                                limits={"nvidia.com/gpu": "1"},
                             ),
                         )
                     ],
@@ -95,7 +94,6 @@ def build_job(cfg: dict):
 
 def build_deploy(cfg: dict):
     from kubernetes import client
-    # 推理初始 = 池总量 - 训练初始（守恒；与 mock 的 inference 初始同语义）
     total = get(cfg, "simulation.total_gpus", 10000)
     init_train = get(cfg, "training.initial_gpu", 8000)
     init = total - init_train
@@ -188,7 +186,7 @@ def wait_initial(batch, apps, cfg: dict, timeout_s: float = 1800.0) -> tuple[int
         if ok_t and ok_i:
             if not stable:
                 stable = True
-                time.sleep(8)  # 等最后几个 pod 的 Ready 状态落定
+                time.sleep(8)
                 continue
             a2_train, a2_infer = read_actual(batch, apps)
             if a2_train >= want_train and a2_infer >= want_infer:
@@ -200,10 +198,9 @@ def wait_initial(batch, apps, cfg: dict, timeout_s: float = 1800.0) -> tuple[int
 
 def dump_manifests(cfg: dict) -> None:
     import yaml
-    from kubernetes import client  # noqa: F401
+    from kubernetes import client
 
     def _clean(obj):
-        # 序列化 V1Job/V1Deployment → 可读 YAML（去掉 None 字段）
         data = client.ApiClient().sanitize_for_serialization(obj)
         return {k: v for k, v in data.items() if v is not None}
 
@@ -240,7 +237,6 @@ def main() -> None:
     apps = client.AppsV1Api(kc)
     batch = client.BatchV1Api(kc)
 
-    # --- 复用 mock 组件 ---
     scheduler = L3PredictiveScheduler(cfg) if args.scheduler == "predictive" else ElasticScheduler(cfg)
     infer = MockInferenceService(cfg)
     training = MockTrainingJob(cfg)
@@ -266,17 +262,14 @@ def main() -> None:
     for t in range(ticks):
         now_s = t * tick_seconds
         minute = now_s / 60.0
-        qps = traffic.qps_at_second(now_s)  # 确定性潮汐 + seed 抖动
+        qps = traffic.qps_at_second(now_s)
 
-        # 1) 读回真实集群的实际分配（延迟反馈，非理想假设）
         actual_train, actual_infer = read_actual(batch, apps)
 
-        # 2) 效应模型：实际分配的推理卡 → p95/状态/防抖计数
         infer.set_gpus(actual_infer)
         infer.step(qps)
-        training.gpus = actual_train  # 供 §12 slowdown 用
+        training.gpus = actual_train
 
-        # 3) 组装 SchedulerContext → 决策引擎
         ctx = SchedulerContext(
             training_gpus=actual_train,
             inference_gpus=actual_infer,
@@ -296,7 +289,6 @@ def main() -> None:
         )
         decision = scheduler.step(ctx)
 
-        # 4) 决策 changed → 真实执行（Kueue 弹性 / Deployment scale）
         if decision.changed:
             if decision.new_training_gpu != actual_train:
                 batch.patch_namespaced_job(
@@ -317,7 +309,6 @@ def main() -> None:
                 flush=True,
             )
 
-        # 5) 指标
         gpu_h_train += actual_train * tick_seconds / 3600.0
         gpu_h_infer += actual_infer * tick_seconds / 3600.0
         if infer.p95_ms > infer.slo_p95_ms:
@@ -342,7 +333,6 @@ def main() -> None:
         )
         time.sleep(args.tick_wall)
 
-    # --- 摘要 ---
     summary = {
         "config": str(Path(args.config).name),
         "total_gpus": total_gpus,

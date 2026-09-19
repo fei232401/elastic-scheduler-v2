@@ -56,17 +56,12 @@ DEFAULT_INTENSITIES = "0,25,50,75,100"
 DEFAULT_CONCURRENCIES = "1,4,8,16"
 DEFAULT_WINDOW_S = 25.0
 DEFAULT_RAMP_S = 3.0
-DEFAULT_WARMUP_S = 12.0   # server 就绪后的预热负载:vLLM 首个负载窗口含引擎热身(模型/调度器懒初始化),
-                          # 不预热会污染第一个测量格(冒烟实测:第一格 TTFT p95 155ms vs 后续 66ms)
+DEFAULT_WARMUP_S = 12.0
 DEFAULT_MAX_TOKENS = 128
 DEFAULT_PROMPT_TOKENS = 600
 DEFAULT_PORT = 8001
 DEFAULT_GPU_FRAC = 0.5
 
-# 固定 prompt:长度 ~600 token(和 decode 载荷对称)。prefill 是 GEMM/SM-bound,
-# 训练争抢对 TTFT 的影响必须靠真实 prefill 才能测出来 → prompt 拉长,且**默认关
-# prefix caching**(本实验测"训练 vs 推理"争抢,不测路由;关缓存消除跨格 cache 预热污染,
-# 否则第一格 cold、后续 warm,TTFT 方向会被测反 —— 冒烟实测踩过)。
 _BASE = (
     "请详细解释在大规模分布式系统中,KV cache 的显存管理与推理调度的关系。"
     "请分别从 prefill 阶段、decode 阶段、以及多实例并发共享 GPU 的角度展开,"
@@ -77,9 +72,6 @@ _BASE = (
 _PROMPT = (_BASE * 20)[:DEFAULT_PROMPT_TOKENS]
 
 
-# ---------------------------------------------------------------------------
-# 训练 worker(subprocess 运行,占空比控制)
-# ---------------------------------------------------------------------------
 
 def _worker_main(args) -> int:
     """在独立进程里跑训练:步循环 + 占空比 sleep,心跳写文件,结束写 JSON。"""
@@ -92,8 +84,6 @@ def _worker_main(args) -> int:
     duration = args.duration
     assert 0 < intensity <= 100
 
-    # 比 R1 默认更大:单卡 4090 上步时间 ~3-8ms,强度 100(背靠背)能实质占用 SM,
-    # 让"训练 vs 推理"争抢真实可测。仍是 compute-bound MLP,结构不变。
     cfg = {
         "local": {"training": {"input_dim": 512, "hidden_dim": 2048, "layers": 4,
                                "output_dim": 10, "batch_size": 1024, "total_work": 1e18}},
@@ -140,7 +130,6 @@ def _worker_main(args) -> int:
             except Exception:
                 pass
             last_util = time.time()
-        # 占空比控制:step 占 intensity% 的周期,其余 sleep(模拟让渡降强度)
         sleep_s = max(0.0, step_ms / 1000.0 * (100.0 / intensity - 1.0))
         if sleep_s:
             time.sleep(sleep_s)
@@ -160,9 +149,6 @@ def _worker_main(args) -> int:
     return 0
 
 
-# ---------------------------------------------------------------------------
-# vLLM 实例(单实例,复用项目二真机闭环的启动/清理逻辑)
-# ---------------------------------------------------------------------------
 
 class Server:
     def __init__(self, model: str, port: int, gpu_frac: float, prefix_cache: bool = False):
@@ -212,9 +198,6 @@ class Server:
                        stderr=subprocess.DEVNULL)
 
 
-# ---------------------------------------------------------------------------
-# 推理负载(并发 × 时间窗,逐请求 TTFT/total + token 计数)
-# ---------------------------------------------------------------------------
 
 def _send_one(url: str, payload: dict) -> dict:
     t0 = time.monotonic()
@@ -294,9 +277,6 @@ def measure_inference(url: str, concurrency: int, window_s: float, max_tokens: i
     }
 
 
-# ---------------------------------------------------------------------------
-# 训练 worker 进程管理
-# ---------------------------------------------------------------------------
 
 def run_train_worker(intensity: int, duration: float, hb_path: Path, out_path: Path) -> subprocess.Popen:
     script = str(Path(__file__).resolve())
@@ -337,9 +317,6 @@ def _solo_train_baseline(duration: float, hb: Path, out: Path) -> dict:
     return {"samples_per_s": w["samples_per_s"]}
 
 
-# ---------------------------------------------------------------------------
-# 主流程
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="项目一 4090 单卡 训练×推理 争抢校准")
@@ -376,26 +353,23 @@ def main() -> None:
     print(f"矩阵:{len(intensities)} 强度 × {len(concurrencies)} 并发;"
           f"每格推理窗 {args.window}s + 训练 ramp {args.ramp}s", flush=True)
 
-    # 0. 训练 solo 基线(强度 100,无推理)
     print("\n=== 基线:训练全速 solo samples/s(无推理)...", flush=True)
     hb0 = tmp.with_suffix(".hb0")
     out0 = tmp.with_suffix(".w0")
     solo = _solo_train_baseline(args.ramp + 6.0, hb0, out0)
     print(f"  训练 solo = {solo['samples_per_s']} samples/s", flush=True)
 
-    # 1. 起 vLLM server
     print("\n=== 启动 vLLM server(util=%.2f,单实例,prefix_cache=%s)..." %
           (args.gpu_frac, args.prefix_cache), flush=True)
     server = Server(model, args.port, args.gpu_frac, prefix_cache=args.prefix_cache)
     server.launch()
 
-    # 预热:vLLM 引擎懒初始化(模型/调度器首轮热身)会污染第一个测量格 → 先跑一段丢弃
     print(f"\n=== 预热 {args.warmup}s(并发 8,结果丢弃)...", flush=True)
     measure_inference(server.url, 8, args.warmup, args.max_tokens)
 
     rows = []
     cells = [(i, c) for i in intensities for c in concurrencies]
-    random.Random(42).shuffle(cells)   # 固定种子打乱格序,避免机器漂移与强度系统性相关
+    random.Random(42).shuffle(cells)
     try:
         for intensity, conv in cells:
             label = f"intensity={intensity}%({100 - intensity}%让渡)×并发{conv}"
@@ -407,7 +381,7 @@ def main() -> None:
             train_p = None
             if intensity > 0:
                 train_p = run_train_worker(intensity, args.window + 2 * args.ramp, hb, out)
-                time.sleep(args.ramp)  # 等训练 ramp 到目标占空比
+                time.sleep(args.ramp)
             t_win_start = time.time()
             inf = measure_inference(server.url, conv, args.window, args.max_tokens)
             t_win_end = time.time()
@@ -426,7 +400,6 @@ def main() -> None:
     finally:
         server.kill()
 
-    # 2. 汇总表
     print("\n" + "=" * 88)
     print("4090 单卡 训练×推理 争抢矩阵(训练强度 vs 推理并发)")
     print("=" * 88)
@@ -439,7 +412,6 @@ def main() -> None:
               f"{r['total_p95_ms']:>10}{r['samples_per_s']:>12}")
     print("-" * 88)
 
-    # 3. 让渡收益摘要(每并发:强度 100 vs 0)
     print("\n让渡收益(训练全速→完全让渡):")
     by_conv = {}
     for r in rows:
@@ -453,7 +425,6 @@ def main() -> None:
                   f"(+{dgain:.0f}%),TTFT p95 {a['ttft_p95_ms']}→{b['ttft_p95_ms']}ms"
                   f"(训练全速时高 {tdiff:+.1f}ms)")
 
-    # 4. 反向共置代价(有推理时训练吞吐 vs solo 基线)——冒烟实测:训练掉 44%
     full_conv = sorted(by_conv)[-1]
     d = by_conv[full_conv]
     if 100 in d and solo["samples_per_s"]:

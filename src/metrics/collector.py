@@ -88,7 +88,6 @@ class MetricsCollector:
     def record_decision(self, decision: dict) -> None:
         self.decisions.append(decision)
 
-    # ---- export ----
     def _csv_path(self, kind: str) -> pathlib.Path:
         return self.dir / f"{kind}_{self.scheduler_name}.csv"
 

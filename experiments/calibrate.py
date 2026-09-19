@@ -54,7 +54,6 @@ def main() -> None:
     calibration = build_calibration(base_cfg, train_p, inf_p, net_p)
     runtime_local = calibration["runtime_local"]
 
-    # 完整配置 = base + local 校准覆盖
     out_cfg = {**base_cfg, **runtime_local}
     out_cfg["local"]["_calibrated_from"] = {
         "R1": calibration["generated_from"]["R1"],
@@ -70,7 +69,6 @@ def main() -> None:
     audit.parent.mkdir(parents=True, exist_ok=True)
     audit.write_text(json.dumps(calibration, indent=2, ensure_ascii=False))
 
-    # 精简摘要（付费预算用户口径）
     tr = calibration["training"]
     inf = calibration["inference"]
     print(f"calibration -> {args.out}")

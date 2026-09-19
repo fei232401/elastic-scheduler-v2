@@ -13,9 +13,9 @@ import pathlib
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from src.metrics.collector import TickMetrics  # noqa: E402
+from src.metrics.collector import TickMetrics
 
 
 def _x(rows: list[TickMetrics]) -> list[float]:

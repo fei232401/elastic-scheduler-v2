@@ -36,7 +36,6 @@ class MockTrainingJob:
         self.state = TrainingState.RUNNING
         self._was_degraded: bool = False
 
-    # ---- throughput & timing ----
     def throughput_at(self, gpus: int) -> float:
         """幂律吞吐：throughput = base * gpu^scaling_exponent（spec §5 工程修正）。"""
         if gpus <= 0:
@@ -65,7 +64,6 @@ class MockTrainingJob:
             return float("inf")
         return tp_initial / max(self.throughput, 1e-9)
 
-    # ---- lifecycle ----
     @property
     def is_degraded(self) -> bool:
         return self.state == TrainingState.RUNNING and self.gpus < self.initial_gpu
@@ -86,14 +84,13 @@ class MockTrainingJob:
             self.state = TrainingState.PAUSED
             return 0.0
 
-        # GPU 被让渡过 → DEGRADED（仍 RUNNING）
         if self.gpus < self.initial_gpu:
             self.state = TrainingState.DEGRADED
             self._was_degraded = True
         else:
             self.state = TrainingState.RUNNING
 
-        delta = self.throughput * throughput_scale  # 每个 tick 的吞吐量（tick 视作单位时间）
+        delta = self.throughput * throughput_scale
         self.progress = min(self.total_work, self.progress + delta)
         if self.progress >= self.total_work:
             self.state = TrainingState.COMPLETED

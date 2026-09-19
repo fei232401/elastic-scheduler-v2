@@ -32,9 +32,7 @@ class TestCustom:
 
     def test_linear_interpolation(self):
         gen = TrafficGenerator(_cfg(CUSTOM))
-        # 10 -> 60 over 20 min：中点 = 35
         assert gen.qps_at_min(10) == 35.0
-        # 60 -> 10 over 20 min：中点 = 35
         assert gen.qps_at_min(30) == 35.0
 
     def test_after_last_point_uses_last_qps(self):
@@ -49,19 +47,18 @@ class TestCustom:
     def test_unsorted_schedule_is_sorted(self):
         shuffled = list(reversed(CUSTOM))
         gen = TrafficGenerator(_cfg(shuffled))
-        assert gen.qps_at_min(10) == 35.0  # 与排序后一致
+        assert gen.qps_at_min(10) == 35.0
 
     def test_default_config_matches_shipped_tide(self):
-        # 与 config/default.yaml 的 70min 潮汐一致：LOW -> RISING -> PEAK -> FALLING -> LOW
         import yaml
 
         cfg = yaml.safe_load(open("config/default.yaml"))
         gen = TrafficGenerator(cfg)
         assert gen.qps_at_min(0) == 10.0
-        assert gen.qps_at_min(20) == 35.0  # 上升段
-        assert gen.qps_at_min(35) == 60.0  # 峰值
-        assert gen.qps_at_min(55) == 20.0  # 下降段（50->15 之间）
-        assert gen.qps_at_min(70) == 10.0  # 回到 LOW
+        assert gen.qps_at_min(20) == 35.0
+        assert gen.qps_at_min(35) == 60.0
+        assert gen.qps_at_min(55) == 20.0
+        assert gen.qps_at_min(70) == 10.0
 
 
 class TestOtherTypes:

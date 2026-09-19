@@ -19,8 +19,8 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from src.config import load_config  # noqa: E402
-from src.simulator.engine import run_experiment  # noqa: E402
+from src.config import load_config
+from src.simulator.engine import run_experiment
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "results" / "scan"
@@ -30,7 +30,6 @@ FIELDS = [
     "training_final_progress", "training_avg_slowdown", "network_congested_ticks",
 ]
 
-# 潮汐骨架（default 全潮汐：10→60→10），仅调整「上升斜率」。
 DEFAULT_TIDE = [
     {"min": 0, "qps": 10}, {"min": 5, "qps": 12}, {"min": 10, "qps": 18},
     {"min": 15, "qps": 25}, {"min": 20, "qps": 35}, {"min": 25, "qps": 45},
@@ -110,7 +109,6 @@ def main() -> None:
         (OUT / f"{name}.json").write_text(json.dumps(rows, indent=2))
         all_results[name] = rows
 
-    # ramp：值即潮汐骨架名
     print(f"\n=== param: ramp  (traffic.schedule 上升斜率 @ default.yaml, scheduler=elastic) ===")
     ramp_rows = []
     for label, schedule in RAMP_VARIANTS.items():

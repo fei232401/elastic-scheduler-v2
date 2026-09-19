@@ -35,7 +35,6 @@ def _netem_delay_ms() -> float:
         ).stdout
         if "netem" not in out:
             return 0.0
-        # 形如 ... netem ... delay 10.0ms ...
         for tok in out.replace("delay", " delay ").split():
             if tok.endswith("ms") and tok[:-2].replace(".", "").isdigit():
                 return float(tok[:-2])
@@ -61,7 +60,6 @@ class NetemNetwork(MockNetwork):
         self.training_bandwidth_mbps = self.training_bandwidth(training_gpus)
         self.inference_bandwidth_mbps = self.inference_bandwidth(inference_gpus, qps)
 
-    # ---------------- 真实整形（REAL）----------------
     def _unshare_cmd(self, body: str) -> tuple[int, str]:
         """在 user+net namespace 内以 root 执行 `tc`（非 root 无 CAP_NET_ADMIN 的解法）。"""
         try:
@@ -70,7 +68,7 @@ class NetemNetwork(MockNetwork):
                 capture_output=True, text=True, timeout=15,
             )
             return r.returncode, (r.stdout + r.stderr).strip()
-        except Exception as e:  # unshare/tc 不可用
+        except Exception as e:
             return -1, str(e)
 
     def probe(self) -> bool:
@@ -108,7 +106,6 @@ class NetemNetwork(MockNetwork):
         self.real_delay_ms = 0.0
         return rc == 0, err
 
-    # ---------------- Local 生命周期（Step 7 接入 adapter）----------------
     def start(self) -> None:
         """探测 tc/netem 可用性（Gate 3）。"""
         self.probe()

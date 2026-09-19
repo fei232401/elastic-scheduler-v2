@@ -50,12 +50,9 @@ class TestRealForwardBackwardStep:
         job.start()
         job.tick(0.5)
         real = job._last_measured_sps
-        # @initial 6 GPU：EMULATED 缩放
         assert abs(job.throughput - real * (6**0.85)) < real * 0.2
-        # @1 GPU = REAL 测量本身
         job.set_gpus(1)
         assert abs(job.throughput - real) < 1e-6
-        # @2 GPU：EMULATED ×2^0.85
         job.set_gpus(2)
         assert abs(job.throughput - real * (2**0.85)) < real * 0.2
 
@@ -63,7 +60,7 @@ class TestRealForwardBackwardStep:
 class TestStateMachine:
     def test_degrades_when_below_initial(self):
         job = build()
-        job.set_gpus(2)  # < initial 6
+        job.set_gpus(2)
         job.tick(0.5)
         assert job.state == "DEGRADED"
 
@@ -74,7 +71,7 @@ class TestStateMachine:
         assert job.state == "PAUSED" and n == 0.0
 
     def test_completes_when_work_done(self):
-        job = build(TINY_CFG)  # total_work=1000，一个 tick 即可完成
+        job = build(TINY_CFG)
         job.start()
         job.tick(2.0)
         assert job.state == "COMPLETED"
@@ -82,17 +79,17 @@ class TestStateMachine:
 
     def test_slowdown_vs_initial(self):
         job = build()
-        assert job.slowdown_vs_initial == 1.0  # 初始配额
+        assert job.slowdown_vs_initial == 1.0
         job.set_gpus(2)
         assert job.slowdown_vs_initial > 1.0
 
     def test_would_allow_degradation_respects_min_gpu(self):
         """min_gpu=1 且 max_allowed_slowdown=3.0：slowdown(1)=4.58>3 → 拒绝。"""
         job = build()
-        assert job.would_allow_degradation(3) is True  # slowdown(3)=(6/3)^0.85≈1.80 ≤3
-        assert job.would_allow_degradation(0) is False  # < min_gpu
-        assert job.would_allow_degradation(1) is False  # slowdown(1)=6^0.85≈4.58 >3
-        assert job.would_allow_degradation(2) is True  # slowdown(2)=3^0.85≈2.54 ≤3
+        assert job.would_allow_degradation(3) is True
+        assert job.would_allow_degradation(0) is False
+        assert job.would_allow_degradation(1) is False
+        assert job.would_allow_degradation(2) is True
 
 
 class TestAdapterContract:

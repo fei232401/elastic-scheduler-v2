@@ -46,13 +46,11 @@ class LocalRuntimeAdapter(RuntimeAdapter):
         self.network = network
         self.tick_seconds = tick_seconds
 
-    # ---------------- 状态读取 ----------------
     def get_cluster_state(self) -> ClusterState:
         return ClusterState(
             total_gpu=self.rm._pool.total,
             allocated_training_gpu=self.rm.training_gpus,
             allocated_inference_gpu=self.rm.inference_gpus,
-            # 与 Mock 同一语义：空闲 = total - 训练 - 推理
             free_gpu=self.rm._pool.total - self.rm.training_gpus - self.rm.inference_gpus,
             network_capacity=self.network.capacity_mbps,
             network_used=self.network.demand_mbps,
@@ -103,7 +101,6 @@ class LocalRuntimeAdapter(RuntimeAdapter):
             inference_bandwidth_mbps=self.network.inference_bandwidth_mbps,
         )
 
-    # ---------------- 资源控制 ----------------
     def scale_training(self, target: int) -> None:
         """训练配额设为 target（推理 = total - target，总量守恒）。"""
         target = max(0, min(target, self.rm._pool.total))
@@ -121,7 +118,6 @@ class LocalRuntimeAdapter(RuntimeAdapter):
         if decision.changed:
             self.scale_training(decision.new_training_gpu)
 
-    # ---------------- 网络感知（spec §17，Network-aware 调度器用）----------------
     def network_expansion_feasible(
         self,
         old_training: int,
@@ -133,7 +129,6 @@ class LocalRuntimeAdapter(RuntimeAdapter):
             old_training, new_training, old_inference, new_inference
         )
 
-    # ---------------- 训练 workload 参数 ----------------
     @property
     def training_min_gpu(self) -> int:
         return self.rm.min_training
@@ -157,7 +152,6 @@ class LocalRuntimeAdapter(RuntimeAdapter):
     def inference_recovery_counter(self) -> int:
         return self.inference.recovery_counter
 
-    # ---------------- Local 生命周期（真实时间步进，Step 3-5 接真实 workload）----------------
     def advance(self, qps: float) -> None:
         """一个 tick：先施加网络整形，再驱动真实 HTTP 推理流量（跑 tick_seconds）。
 

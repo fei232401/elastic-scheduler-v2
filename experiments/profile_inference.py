@@ -42,12 +42,9 @@ def main() -> None:
     svc = HTTPInferenceService(cfg)
     svc.start()
 
-    # 暖机：稳定线程池/连接池，避免冷启动瞬态污染 base 延迟
     svc.serve(max(args.low, 300.0), max(args.duration, 2.0))
-    # 低负载：base 延迟（中等 QPS 比极低 QPS 更稳定）
     svc.serve(max(args.low, 500.0), args.duration)
     base = svc.real_stats
-    # 高负载：饱和吞吐 + 饱和 p95
     svc.serve(args.high, args.duration)
     sat = svc.real_stats
     svc.stop()
@@ -57,7 +54,7 @@ def main() -> None:
     capacity_per_gpu = saturation_qps / initial_infer_gpus if initial_infer_gpus else saturation_qps
     base_p95 = base["p95_ms"]
     overload_p95 = max(base["p95_ms"], sat["p95_ms"])
-    slo = args.slo  # 设计参数：健康 GPU 延迟远低于 SLO，真实网络拥塞能推过
+    slo = args.slo
 
     profile = {
         "experiment": "R2_real_inference",

@@ -71,7 +71,6 @@ def test_scaling_is_honestly_emulated():
     tr = cal["training"]
     assert "EMULATED" in tr["scaling_marker"]
     assert "not a measurement" in tr["scaling_marker"]
-    # 多卡吞吐 = T1 × curve
     assert abs(tr["emulated_multigpu_sps"]["2"] - 216822.7 * (2 ** 0.85)) < 1.0
 
 
@@ -105,7 +104,6 @@ def test_runtime_local_section_loadable():
     assert rl["training"]["calibration_curve"]["1"] == 1.0
     assert rl["inference"]["capacity_per_gpu"] == 563.3
     assert rl["inference"]["slo_p95_ms"] == 15.0
-    # 完整配置 = base + local 覆盖后，training_real 可消费
     full = {**copy.deepcopy(BASE_CFG), **copy.deepcopy(cal["runtime_local"])}
     assert full["local"]["training"]["calibration_curve"]["2"] > 1.0
 

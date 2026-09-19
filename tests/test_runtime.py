@@ -26,7 +26,6 @@ from src.scheduler.static import StaticScheduler
 from src.workload.inference import MockInferenceService
 from src.workload.training import MockTrainingJob
 
-# ---------------- 构造辅助 ----------------
 
 CFG = {
     "simulation": {"tick_seconds": 5},
@@ -47,7 +46,6 @@ CFG = {
     },
 }
 
-# 网络受限 + 训练曲线平（实验 B 风格）→ 扩容闸门必拦截
 NET_BOUND_CFG = {
     **CFG,
     "training": {**CFG["training"], "initial_gpu": 4, "min_gpu": 1},
@@ -113,7 +111,6 @@ def run_ticks(adapter: MockRuntimeAdapter, scheduler, qps_seq: list[float]) -> l
     return decisions
 
 
-# ---------------- ResourceDecision 增强 ----------------
 
 class TestResourceDecision:
     def test_to_dict_includes_replay_fields(self):
@@ -135,7 +132,6 @@ class TestResourceDecision:
         assert d.changed is False and d.delta == 0
 
 
-# ---------------- 状态视图 ----------------
 
 class TestStateViews:
     def test_state_dataclasses_hold_fields(self):
@@ -147,7 +143,6 @@ class TestStateViews:
         assert tr.remaining_work == 99900.0
         assert inf.slo == 300.0 and inf.slo_violation is False
         assert nt.capacity_mbps == 30000.0 and nt.congested is False
-        # Phase 3.2 扩展字段默认值（Local Runtime 填充真实测量）
         assert tr.gpu_utilization == 0.0 and tr.gpu_memory_mb == 0.0
         assert inf.gpu_utilization == 0.0 and inf.gpu_memory_mb == 0.0
         assert nt.training_bandwidth_mbps == 0.0 and nt.inference_bandwidth_mbps == 0.0
@@ -166,31 +161,28 @@ class TestMockRuntimeState:
         tr = a.get_training_state()
         assert tr.status == "RUNNING" and tr.allocated_gpu == 6
         assert tr.progress == 0.0 and tr.remaining_work == 100000.0
-        assert tr.network_bandwidth == 2700.0  # train_bw(6) = 50*36+150*6
-        # Phase 3.2：Mock 语义 util=1.0（运行中），显存未建模 → 0
+        assert tr.network_bandwidth == 2700.0
         assert tr.gpu_utilization == 1.0 and tr.gpu_memory_mb == 0.0
 
     def test_get_inference_state_reports_latency(self):
         a = build_adapter()
-        a.advance(10.0)  # 低流量，不超容量
+        a.advance(10.0)
         inf = a.get_inference_state()
         assert inf.qps == 10.0 and inf.allocated_gpu == 2
         assert inf.p95 <= 300.0 and inf.slo_violation is False
 
     def test_get_network_state_reports_congestion(self):
         a = build_adapter()
-        a.advance(30.0)  # 高流量，推理带宽挤占
+        a.advance(30.0)
         nt = a.get_network_state()
         assert nt.demand_mbps > 0 and nt.capacity_mbps == 30000.0
-        assert nt.congested is False  # 容量富余
-        # Phase 3.2：显式带宽拆分（训练 + 推理 = 需求）
+        assert nt.congested is False
         assert nt.training_bandwidth_mbps > 0.0 and nt.inference_bandwidth_mbps > 0.0
         assert abs(
             nt.training_bandwidth_mbps + nt.inference_bandwidth_mbps - nt.demand_mbps
         ) < 1e-6
 
 
-# ---------------- 资源控制 ----------------
 
 class TestMockRuntimeControl:
     def test_scale_training_preserves_conservation(self):
@@ -223,7 +215,7 @@ class TestMockRuntimeControl:
     def test_network_expansion_feasible_delegates(self):
         a = build_adapter()
         feasible, detail = a.network_expansion_feasible(6, 5, 2, 3)
-        assert feasible is True  # 容量富余
+        assert feasible is True
         assert "released_training_bw" in detail
 
     def test_training_params_exposed(self):
@@ -231,11 +223,10 @@ class TestMockRuntimeControl:
         assert a.training_min_gpu == 1 and a.training_initial_gpu == 6
         assert a.training_slowdown == 1.0
         assert a.would_allow_degradation(3) is True
-        assert a.would_allow_degradation(0) is False  # 低于 min_gpu
+        assert a.would_allow_degradation(0) is False
         assert a.inference_overload_counter == 0
 
 
-# ---------------- 四策略 × MockRuntime 端到端（任务书 Test 1-4） ----------------
 
 class TestStaticWithRuntime:
     def test_never_changes_and_training_progresses(self):
@@ -243,7 +234,7 @@ class TestStaticWithRuntime:
         s = StaticScheduler(SC_CFG)
         qps = [10.0] * 20 + [60.0] * 20
         decisions = run_ticks(a, s, qps)
-        assert decisions == []  # static 永不切换
+        assert decisions == []
         tr = a.get_training_state()
         assert tr.progress > 0.0
         assert a.get_cluster_state().allocated_training_gpu == 6
@@ -253,7 +244,7 @@ class TestElasticWithRuntime:
     def test_reclaims_gpu_under_overload(self):
         a = build_adapter()
         s = ElasticScheduler(SC_CFG)
-        decisions = run_ticks(a, s, [60.0] * 10)  # 持续超容量
+        decisions = run_ticks(a, s, [60.0] * 10)
         assert decisions, "overload 下应发生让渡"
         assert decisions[0].delta == -1
         assert decisions[0].scheduler == "elastic"
@@ -274,7 +265,7 @@ class TestHardPreemptionWithRuntime:
         s = HardPreemptionScheduler(SC_CFG)
         decisions = run_ticks(a, s, [60.0] * 10)
         assert decisions, "过载下应发生抢占"
-        assert abs(decisions[0].delta) > 1  # 一次性大幅回收
+        assert abs(decisions[0].delta) > 1
         cl = a.get_cluster_state()
         assert cl.allocated_training_gpu == 1 and cl.allocated_inference_gpu == 7
 
@@ -284,14 +275,13 @@ class TestNetworkAwareWithRuntime:
         a = build_adapter(NET_BOUND_CFG)
         s = NetworkAwareElasticScheduler(SC_CFG)
         run_ticks(a, s, [30.0] * 10)
-        # 网络饱和 + 释放带宽 < 新增 → 扩容被闸门拦截，配额不动
         cl = a.get_cluster_state()
         assert cl.allocated_training_gpu == 4 and cl.allocated_inference_gpu == 4
         feasible, _ = a.network_expansion_feasible(4, 3, 4, 5)
         assert feasible is False
 
     def test_gate_allows_expansion_when_network_abundant(self):
-        a = build_adapter(CFG)  # 容量 30000 富余
+        a = build_adapter(CFG)
         s = NetworkAwareElasticScheduler(SC_CFG)
         decisions = run_ticks(a, s, [60.0] * 10)
         assert decisions, "GPU 瓶颈 + 网络富余 → 正常扩容"

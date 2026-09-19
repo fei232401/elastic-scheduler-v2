@@ -44,16 +44,13 @@ class ElasticScheduler(Scheduler):
                 inference_p95=p95,
             )
 
-        # Rule 4：改配额后保护期内不动
         if self._last_change_tick is not None:
             if tick - self._last_change_tick < self.min_hold_ticks:
                 return noop("min_gpu_hold: within protection window after last change")
 
-        # Rule 1：SLO violation（防抖确认过载）→ 让渡 1 GPU
         if ctx.inference_state == "OVERLOADED" and p95 > slo:
             if ctx.training_gpus > ctx.training_min_gpu:
                 new_training = ctx.training_gpus - self.max_scale_step
-                # §12 保护：不许低于 min_gpu；超过 max_allowed_slowdown 不许降
                 if new_training >= ctx.training_min_gpu and (
                     would_allow is None or would_allow(new_training)
                 ):
@@ -73,11 +70,9 @@ class ElasticScheduler(Scheduler):
                 "Rule1 blocked: training at min_gpu or degradation would exceed max_allowed_slowdown"
             )
 
-        # Rule 2：接近 SLO → 只预警
         if p95 > self.approach_ratio * slo:
             return noop(f"Rule2: approaching SLO (P95={p95:.0f}ms > {self.approach_ratio:.0%}*SLO), hold")
 
-        # Rule 3：健康且 Training 被降级 → 归还 1 GPU
         if p95 < self.healthy_ratio * slo and ctx.training_gpus < ctx.training_initial_gpu:
             self._last_change_tick = tick
             return ResourceDecision(

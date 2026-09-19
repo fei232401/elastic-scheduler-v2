@@ -70,16 +70,14 @@ def main() -> None:
     rows = []
     for delay in DELAYS_MS:
         _set_netem(delay)
-        svc.serve(max(args.low, 500.0), max(args.duration, 1.5))  # 暖机/稳定
-        svc.serve(args.low, args.duration)  # base 窗口
+        svc.serve(max(args.low, 500.0), max(args.duration, 1.5))
+        svc.serve(args.low, args.duration)
         base = svc.real_stats
-        svc.serve(args.high, args.duration)  # 饱和窗口
+        svc.serve(args.high, args.duration)
         sat = svc.real_stats
         rows.append({
             "netem_delay_ms": delay,
-            # server 侧处理延迟（不含 RTT，flat —— 服务端不是瓶颈）
             "server_p95_ms": round(sat["p95_ms"], 2),
-            # 客户端观测端到端延迟（含 RTT —— 用户感知口径，SLO 对应这个）
             "e2e_base_p95_ms": round(base["e2e_p95_ms"], 2),
             "e2e_sat_p95_ms": round(sat["e2e_p95_ms"], 2),
             "sat_throughput_qps": round(sat["throughput_qps"], 1),

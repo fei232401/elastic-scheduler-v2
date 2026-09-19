@@ -51,7 +51,6 @@ def _states(cfg=None):
 def _assert_same(mock, netem, train_gpus, infer_gpus, qps):
     for f in FIELDS:
         assert abs(getattr(netem, f) - getattr(mock, f)) < 1e-9, f
-    # 带宽函数（方法）与 LocalRuntimeAdapter 读取的拆分属性
     assert abs(netem.training_bandwidth(train_gpus) - mock.training_bandwidth(train_gpus)) < 1e-9
     assert abs(netem.inference_bandwidth(infer_gpus, qps) - mock.inference_bandwidth(infer_gpus, qps)) < 1e-9
     assert abs(netem.training_bandwidth_mbps - mock.training_bandwidth(train_gpus)) < 1e-9
@@ -79,7 +78,6 @@ def test_gate_identical_to_mock():
     mock.update(4, 4, 30.0)
     netem.update(4, 4, 30.0)
     assert mock.expansion_feasible(4, 3, 4, 5) == netem.expansion_feasible(4, 3, 4, 5)
-    # NET_BOUND 语义：释放训练带宽 < 新增推理带宽 → 拦截
     ok, detail = netem.expansion_feasible(4, 3, 4, 5)
     assert ok is False
     assert set(detail) >= {"released_training_bw", "delta_inference_bw",
@@ -88,17 +86,16 @@ def test_gate_identical_to_mock():
 
 def test_probe_gate3_capability():
     netem = NetemNetwork(CFG)
-    assert netem.probe() is True  # 本机 unshare+tc 可用（已实测）
+    assert netem.probe() is True
     assert netem.shaping_available is True
-    # probe 幂等
     assert netem.probe() is True
 
 
 def test_apply_clear_shaping_commands_run():
     netem = NetemNetwork(CFG)
-    netem.start()  # 触发 probe
+    netem.start()
     ok, err = netem.apply_shaping(20.0)
-    assert ok, err  # 命令成功（作用于瞬态 namespace）
+    assert ok, err
     assert netem.real_delay_ms == 20.0
     ok, err = netem.clear_shaping()
     assert ok, err
@@ -119,11 +116,11 @@ def test_adapter_wiring_with_netem_network():
         network=NetemNetwork(CFG),
         tick_seconds=1.0,
     )
-    a.start()  # getattr(start) → NetemNetwork.probe
+    a.start()
     a.advance(30.0)
     ns = a.get_network_state()
-    assert ns.utilization > 1.0  # NET_BOUND 已拥塞
+    assert ns.utilization > 1.0
     assert ns.congested is True
     assert ns.headroom_mbps == 0.0
-    assert ns.training_bandwidth_mbps == 280.0  # 0.2*(50*16+150*4)
+    assert ns.training_bandwidth_mbps == 280.0
     a.stop()

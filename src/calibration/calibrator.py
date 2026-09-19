@@ -107,7 +107,6 @@ def build_calibration(
             "key_findings": network_profile.get("key_findings", []),
         }
 
-    # Step 10 可用的 `local:` 覆盖段（完整配置 = base + 此段）
     runtime_local = {
         "local": {
             "device": get(base_cfg, "local.device", "auto"),

@@ -96,12 +96,10 @@ def make_predictive_scheduler(error_std: float, alpha: float = 0.3):
             self._last_pred_switch = None
 
         def step(self, ctx):
-            # 先喂观测:P95 反推负载压力
             load_proxy = ctx.inference_p95_ms / max(ctx.slo_p95_ms, 1.0)
             self.predictor.update(load_proxy)
             predicted = self.predictor.predict()
 
-            # 预测压力 > 阈值 → 提前让渡 1 GPU(带保护窗口)
             s = self.cfg.get("scheduler", {})
             threshold = s.get("predict_preempt_ratio", 0.6)
             hold = s.get("min_gpu_hold_duration_ticks", 24)
@@ -117,7 +115,6 @@ def make_predictive_scheduler(error_std: float, alpha: float = 0.3):
                         reason="predict_preempt",
                         inference_p95=ctx.inference_p95_ms,
                     )
-            # 否则走 elastic 反应式
             return super().step(ctx)
 
     return PredictiveScheduler
@@ -128,11 +125,11 @@ def run_with_predictor(cfg: dict, error_std: float, alpha: float = 0.3) -> dict:
     from src.simulator import engine as engine_mod
 
     cls = make_predictive_scheduler(error_std, alpha)
-    engine_mod.SCHEDULERS["predictive"] = cls  # 临时注册
+    engine_mod.SCHEDULERS["predictive"] = cls
     try:
         collector = engine_mod.run_experiment("predictive", cfg)
     finally:
-        engine_mod.SCHEDULERS.pop("predictive", None)  # 清理,不留脏状态
+        engine_mod.SCHEDULERS.pop("predictive", None)
 
     s = collector.summarize()
     return {

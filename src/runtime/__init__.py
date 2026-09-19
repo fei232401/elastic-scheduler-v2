@@ -5,7 +5,7 @@
   - `mock.py`   MockRuntimeAdapter（包装现有 Mock 组件，跑现有实验）
   - `local.py`  LocalRuntimeAdapter（Phase 3.2：真实 workload + tc/netem 网络）
 """
-from src.runtime.base import (  # noqa: F401
+from src.runtime.base import (
     ClusterState,
     InferenceState,
     NetworkState,
@@ -13,7 +13,7 @@ from src.runtime.base import (  # noqa: F401
     RuntimeAdapter,
     TrainingState,
 )
-from src.runtime.local import LocalRuntimeAdapter  # noqa: F401
+from src.runtime.local import LocalRuntimeAdapter
 
 __all__ = [
     "ClusterState",

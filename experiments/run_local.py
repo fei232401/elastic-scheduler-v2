@@ -21,9 +21,9 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 
-from src.config import load_config  # noqa: E402
-from src.metrics.exporter import export_all  # noqa: E402
-from src.simulator.engine import SCHEDULERS, run_experiment  # noqa: E402
+from src.config import load_config
+from src.metrics.exporter import export_all
+from src.simulator.engine import SCHEDULERS, run_experiment
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCAL_CFG = ROOT / "config" / "local_experiment.yaml"

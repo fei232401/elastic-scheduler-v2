@@ -38,7 +38,7 @@ def main() -> None:
 
     job = RealTrainingJob(cfg)
     job.start()
-    job.tick(args.duration)  # 暖机（cuDNN autotune）
+    job.tick(args.duration)
 
     sps: list[float] = []
     utils: list[float] = []

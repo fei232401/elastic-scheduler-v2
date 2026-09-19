@@ -46,14 +46,11 @@ class MockRuntimeAdapter(RuntimeAdapter):
         self.inference = inference
         self.network = network
 
-    # ---------------- 状态读取 ----------------
     def get_cluster_state(self) -> ClusterState:
         return ClusterState(
             total_gpu=self.rm._pool.total,
             allocated_training_gpu=self.rm.training_gpus,
             allocated_inference_gpu=self.rm.inference_gpus,
-            # 语义上的空闲卡 = total - 训练 - 推理（Mock 中推理是 total-training 的隐式占位，
-            # rm.unused_gpus 只算池内训练登记，不能直接用）
             free_gpu=self.rm._pool.total - self.rm.training_gpus - self.rm.inference_gpus,
             network_capacity=self.network.capacity_mbps,
             network_used=self.network.demand_mbps,
@@ -69,7 +66,6 @@ class MockRuntimeAdapter(RuntimeAdapter):
             throughput=self.training.throughput,
             estimated_completion_time=self.training.estimated_completion_time_s,
             network_bandwidth=self.network.training_bandwidth(self.training.gpus),
-            # Mock 语义：运行中的训练任务占满其分配 GPU；显存未建模 → 0
             gpu_utilization=1.0 if self.training.state.value in ("RUNNING", "DEGRADED") else 0.0,
             gpu_memory_mb=0.0,
         )
@@ -90,7 +86,6 @@ class MockRuntimeAdapter(RuntimeAdapter):
             network_bandwidth=self.network.inference_bandwidth(
                 self.inference.gpus, self.inference.incoming_qps
             ),
-            # Mock 语义：推理 GPU 使用率 ≈ 吞吐/容量；显存未建模 → 0
             gpu_utilization=(
                 min(self.inference.throughput_qps / self.inference.capacity_qps, 1.0)
                 if self.inference.capacity_qps > 0
@@ -108,14 +103,12 @@ class MockRuntimeAdapter(RuntimeAdapter):
             throughput_scale=self.network.throughput_scale,
             headroom_mbps=self.network.headroom_mbps,
             congested=self.network.congested,
-            # Phase 3.2：显式带宽拆分（§4.4）
             training_bandwidth_mbps=self.network.training_bandwidth(self.rm.training_gpus),
             inference_bandwidth_mbps=self.network.inference_bandwidth(
                 self.rm.inference_gpus, self.inference.incoming_qps
             ),
         )
 
-    # ---------------- 资源控制 ----------------
     def scale_training(self, target: int) -> None:
         """训练配额设为 target（推理 = total - target，总量守恒）。"""
         target = max(0, min(target, self.rm._pool.total))
@@ -134,7 +127,6 @@ class MockRuntimeAdapter(RuntimeAdapter):
         if decision.changed:
             self.scale_training(decision.new_training_gpu)
 
-    # ---------------- 网络感知（spec §17）----------------
     def network_expansion_feasible(
         self,
         old_training: int,
@@ -146,7 +138,6 @@ class MockRuntimeAdapter(RuntimeAdapter):
             old_training, new_training, old_inference, new_inference
         )
 
-    # ---------------- 训练 workload 参数 ----------------
     @property
     def training_min_gpu(self) -> int:
         return self.rm.min_training
@@ -170,7 +161,6 @@ class MockRuntimeAdapter(RuntimeAdapter):
     def inference_recovery_counter(self) -> int:
         return self.inference._recovery_counter
 
-    # ---------------- Mock 每 tick 执行（引擎驱动）----------------
     def advance(self, qps: float) -> None:
         """推进一个 tick 的「网络 + 推理」：网络先按当前配额刷新，再喂给推理。"""
         self.network.update(self.rm.training_gpus, self.rm.inference_gpus, qps)

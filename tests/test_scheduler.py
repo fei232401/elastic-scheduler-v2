@@ -62,7 +62,7 @@ class TestElasticRule1:
     def test_reclaim_respects_min_gpu(self):
         s = ElasticScheduler(CFG)
         d = s.step(ctx(training=1, inference=7, p95=350, slo=300, state="OVERLOADED", now_s=0.0))
-        assert d.changed is False  # training 已在 min，不能再让
+        assert d.changed is False
 
     def test_reclaim_blocked_when_slowdown_exceeded(self):
         s = ElasticScheduler(CFG)
@@ -75,7 +75,7 @@ class TestElasticRule2:
     def test_approaching_holds(self):
         """P95 在 80%~100% SLO 之间 → 只预警不改配额。"""
         s = ElasticScheduler(CFG)
-        d = s.step(ctx(p95=250, slo=300, state="RUNNING", now_s=0.0))  # 250 > 240(80%)
+        d = s.step(ctx(p95=250, slo=300, state="RUNNING", now_s=0.0))
         assert d.changed is False
         assert "Rule2" in d.reason
 
@@ -83,7 +83,6 @@ class TestElasticRule2:
 class TestElasticRule3:
     def test_healthy_returns_gpu_when_degraded(self):
         s = ElasticScheduler(CFG)
-        # training 5/initial 6（degraded），P95 低 → 归还 1
         d = s.step(ctx(training=5, inference=3, p95=100, slo=300, state="RUNNING",
                        now_s=0.0, initial_gpu=6))
         assert d.changed is True
@@ -100,12 +99,10 @@ class TestElasticRule4:
     def test_min_hold_blocks_reclaim(self):
         """改配额后 24 tick 内（120s/5s）不再动。"""
         s = ElasticScheduler(CFG)
-        s.step(ctx(p95=350, slo=300, state="OVERLOADED", now_s=0.0))  # 触发让渡
-        # t=60s (12 tick) 仍在保护期
+        s.step(ctx(p95=350, slo=300, state="OVERLOADED", now_s=0.0))
         d = s.step(ctx(p95=400, slo=300, state="OVERLOADED", now_s=60.0))
         assert d.changed is False
         assert "hold" in d.reason
-        # t=150s (30 tick) 已过保护期 → 再次让渡
         d = s.step(ctx(p95=400, slo=300, state="OVERLOADED", now_s=150.0))
         assert d.changed is True
 
@@ -114,7 +111,6 @@ class TestFullCycle:
     def test_reclaim_then_return_cycle(self):
         """完整让渡→归还周期（AC-04/AC-07）。"""
         s = ElasticScheduler(CFG)
-        # 高峰：逐级让渡（每次把让渡后的配额传给下一次）
         training, inference = 6, 2
         t = 0.0
         for _ in range(3):
@@ -122,9 +118,8 @@ class TestFullCycle:
                            p95=350, slo=300, state="OVERLOADED", now_s=t))
             assert d.changed is True and d.delta == -1
             training, inference = d.new_training_gpu, d.new_inference_gpu
-            t += 150.0  # 跳过保护期
+            t += 150.0
         assert training == 3
-        # 回落：逐级归还
         for _ in range(3):
             d = s.step(ctx(training=training, inference=inference,
                            p95=100, slo=300, state="RUNNING", now_s=t))

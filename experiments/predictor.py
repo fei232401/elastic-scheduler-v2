@@ -23,9 +23,9 @@ from dataclasses import dataclass, field
 
 @dataclass
 class EMAPredictorConfig:
-    alpha: float = 0.3            # 平滑系数 (0,1)
-    horizon_steps: int = 1        # 预测前看几步(超前量)
-    error_std: float = 0.0        # 预测误差噪声标准差(相对负载的比例)
+    alpha: float = 0.3
+    horizon_steps: int = 1
+    error_std: float = 0.0
     seed: int = 42
 
 
@@ -54,5 +54,4 @@ class EMAPredictor:
         if self._ema is None:
             return 0.0
         noise = self._rng.gauss(0.0, self.config.error_std) if self.config.error_std else 0.0
-        # 负载预测不可能是负的
         return max(0.0, self._ema * (1.0 + noise))

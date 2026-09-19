@@ -33,20 +33,20 @@ from src.config import get
 class _InferHandler(http.server.BaseHTTPRequestHandler):
     """POST /infer → 入批队列 → 批前向 → 200。"""
 
-    service = None  # 由 HTTPInferenceService 注入
+    service = None
 
     def do_POST(self) -> None:
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length > 0:
             self.rfile.read(length)
-        dt_ms = self.service._submit()  # 入队等待批处理，返回真实延迟
+        dt_ms = self.service._submit()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
         self.wfile.write(b'{"ok":true}')
         self.service._record(dt_ms)
 
-    def log_message(self, *args) -> None:  # 静音访问日志
+    def log_message(self, *args) -> None:
         pass
 
 
@@ -60,7 +60,6 @@ class HTTPInferenceService:
         sim = get(cfg, "simulation", {})
 
         self.slo_p95_ms = float(get(li, "slo_p95_ms", get(inf, "slo_p95_ms", 300)))
-        # 虚拟容量模型：capacity_per_gpu × allocated_gpu（EMULATED，Step 6 校准）
         self.capacity_per_gpu = float(get(li, "capacity_per_gpu", get(inf, "capacity_per_gpu", 10)))
         self.overload_trigger_ticks = int(get(inf, "overload_trigger_ticks", 3))
         self.recovery_trigger_ticks = int(get(inf, "recovery_trigger_ticks", 5))
@@ -68,11 +67,9 @@ class HTTPInferenceService:
         self.port = int(get(li, "port", 8701))
         self.workers = int(get(li, "generator_workers", 16))
 
-        # 动态批处理参数
         self.max_batch_size = int(get(li, "max_batch_size", 16))
         self.flush_interval_ms = float(get(li, "flush_interval_ms", 1.0))
 
-        # 推理模型：小型 MLP（批前向）
         self.input_dim = int(get(li, "input_dim", 64))
         self.hidden_dim = int(get(li, "hidden_dim", 256))
         self.layers = int(get(li, "layers", 3))
@@ -83,17 +80,14 @@ class HTTPInferenceService:
         )
         self._is_gpu = self.device.type == "cuda"
 
-        # 初始推理配额 = total - initial_training（与 Mock 一致）
         total = int(get(sim, "total_gpus", 8))
         initial_t = int(get(get(cfg, "training", {}), "initial_gpu", 6))
         self.allocated_gpu: int = total - initial_t
 
-        # 真实曲线校准参数（Step 6 R2 profiling 用实测覆盖）
-        self.base_p95_ms = float(get(li, "base_p95_ms", 3.0))       # 低负载实测 P95
-        self.overload_p95_ms = float(get(li, "overload_p95_ms", 10.0))  # 饱和实测 P95
-        self.saturation_qps = float(get(li, "saturation_qps", 1500.0))  # 单卡实测饱和 QPS
+        self.base_p95_ms = float(get(li, "base_p95_ms", 3.0))
+        self.overload_p95_ms = float(get(li, "overload_p95_ms", 10.0))
+        self.saturation_qps = float(get(li, "saturation_qps", 1500.0))
 
-        # 运行时状态
         self.qps: float = 0.0
         self.throughput_qps: float = 0.0
         self.p50_ms: float = 0.0
@@ -124,7 +118,6 @@ class HTTPInferenceService:
 
         self._build_model()
 
-    # ---------------- 模型 ----------------
     def _build_model(self) -> None:
         torch.manual_seed(42)
         layers = [nn.Linear(self.input_dim, self.hidden_dim), nn.ReLU()]
@@ -134,7 +127,6 @@ class HTTPInferenceService:
         self.model = nn.Sequential(*layers).to(self.device)
         self.model.eval()
 
-    # ---------------- 批处理 ----------------
     def _submit(self) -> float:
         """入批队列并等待结果，返回本请求端到端延迟（ms，REAL）。"""
         ev = threading.Event()
@@ -143,7 +135,7 @@ class HTTPInferenceService:
         with self._lock:
             self._batch_queue.append((ev, holder))
         if not ev.wait(timeout=30.0):
-            return 30_000.0  # 超时兜底
+            return 30_000.0
         return (time.perf_counter() - t0) * 1000.0
 
     def _batch_loop(self) -> None:
@@ -161,11 +153,9 @@ class HTTPInferenceService:
                 self.model(x)
             for _, holder in batch:
                 holder["out"] = True
-                # 事件在 for 循环外集中 set，减少锁竞争
             for ev, _ in batch:
                 ev.set()
 
-    # ---------------- 指标 ----------------
     def _record(self, dt_ms: float) -> None:
         with self._lock:
             self._latencies.append(dt_ms)
@@ -181,7 +171,6 @@ class HTTPInferenceService:
             out.append(s[max(0, min(n - 1, int(round(p * (n - 1)))))])
         return out
 
-    # ---------------- 容量与延迟模型 ----------------
     @property
     def capacity_qps(self) -> float:
         """EMULATED 容量：capacity_per_gpu × allocated_gpu（与 Mock 同构）。"""
@@ -200,11 +189,9 @@ class HTTPInferenceService:
             p99 = p95 * (1.0 + 0.05 * min(2.0, util - 1.0))
         return p50, p95, p99
 
-    # ---------------- 资源控制 ----------------
     def set_gpus(self, gpus: int) -> None:
         self.allocated_gpu = max(0, int(gpus))
 
-    # ---------------- 生命周期 ----------------
     def start(self) -> None:
         if self._server is not None:
             return
@@ -229,7 +216,6 @@ class HTTPInferenceService:
             self._batcher_thread.join(timeout=2)
             self._batcher_thread = None
 
-    # ---------------- 每 tick：真实负载 ----------------
     def serve(self, qps: float, seconds: float, network_latency_ms: float = 0.0) -> None:
         """驱动真实 HTTP 负载 `seconds` 秒，测真实延迟 + 计算上报给调度器的 EMULATED 延迟。
 
@@ -265,11 +251,9 @@ class HTTPInferenceService:
 
         real50, real95, real99 = self._percentiles(lats, [0.5, 0.95, 0.99])
         self._real_p50_ms, self._real_p95_ms, self._real_p99_ms = real50, real95, real99
-        # 客户端观测的端到端延迟（含网络 RTT，用户感知的 P95）
         e2e50, e2e95, e2e99 = self._percentiles(e2e, [0.5, 0.95, 0.99])
         self._e2e_p50_ms, self._e2e_p95_ms, self._e2e_p99_ms = e2e50, e2e95, e2e99
 
-        # 上报给调度器的 EMULATED 延迟（用虚拟容量计算利用率 + 真实网络拥塞延迟）
         cap = self.capacity_qps
         util = qps / cap if cap > 0 else 1.0
         e50, e95, e99 = self._emulated_latency(util)
@@ -281,7 +265,6 @@ class HTTPInferenceService:
 
         self._sample_gpu_metrics()
 
-        # 防抖（基于上报给调度器的 EMULATED P95，与 Mock 语义一致）
         if self.slo_violated:
             self._oc += 1
             self._rc = 0
@@ -314,13 +297,12 @@ class HTTPInferenceService:
                 with self._lock:
                     self._e2e_latencies.append(e2e_ms)
             except Exception:
-                pass  # 并发下个别失败可容忍
+                pass
             if interval > 0:
                 remain = interval - (time.perf_counter() - next_t)
                 if remain > 0:
                     time.sleep(remain)
 
-    # ---------------- GPU 指标（REAL 采样）----------------
     def _sample_gpu_metrics(self) -> None:
         if not self._is_gpu:
             self.gpu_utilization = 0.0
@@ -335,7 +317,6 @@ class HTTPInferenceService:
         except Exception:
             self.gpu_utilization = 0.0
 
-    # ---------------- 供 adapter/报告读取 ----------------
     @property
     def overload_counter(self) -> int:
         return self._oc

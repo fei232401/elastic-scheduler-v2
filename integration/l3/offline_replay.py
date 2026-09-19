@@ -20,16 +20,16 @@ import random
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-import sys  # noqa: E402
+import sys
 sys.path.insert(0, str(_REPO_ROOT))
 
-from src.config import get, load_config  # noqa: E402
-from src.scheduler.elastic import ElasticScheduler  # noqa: E402
-from src.scheduler.base import SchedulerContext  # noqa: E402
-from src.workload.inference import MockInferenceService  # noqa: E402
-from src.workload.training import MockTrainingJob  # noqa: E402
-from src.workload.traffic import TrafficGenerator  # noqa: E402
-from integration.l3.predictive import L3PredictiveScheduler  # noqa: E402
+from src.config import get, load_config
+from src.scheduler.elastic import ElasticScheduler
+from src.scheduler.base import SchedulerContext
+from src.workload.inference import MockInferenceService
+from src.workload.training import MockTrainingJob
+from src.workload.traffic import TrafficGenerator
+from integration.l3.predictive import L3PredictiveScheduler
 
 STRATEGIES = {"elastic", "static", "predictive"}
 
@@ -51,7 +51,7 @@ def main() -> None:
     init_infer = total_gpus - init_train
 
     if args.scheduler == "static":
-        scheduler = None  # 固定分配,不做决策
+        scheduler = None
     elif args.scheduler == "predictive":
         scheduler = L3PredictiveScheduler(cfg)
         scheduler.reset()
@@ -62,7 +62,6 @@ def main() -> None:
     training = MockTrainingJob(cfg)
     traffic = TrafficGenerator(cfg, rng=random.Random(seed))
 
-    # 理想反馈:分配即决策,同 tick 生效
     cur_train, cur_infer = init_train, init_infer
     infer.set_gpus(cur_infer)
 
@@ -104,7 +103,6 @@ def main() -> None:
                     moves_down += 1
                 else:
                     moves_up += 1
-                # 理想反馈:立即生效
                 cur_train = decision.new_training_gpu
                 cur_infer = decision.new_inference_gpu
 
