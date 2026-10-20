@@ -1,5 +1,7 @@
 # Elastic Training-Inference Resource Scheduler(算法层)
 
+> **研究原型（2026-10）**：本仓库用离散时间仿真和历史实验研究训练、推理之间的资源分配策略，不操作生产集群或真实万卡 GPU。README 中的“违约率”是仿真里超过 SLO 的 tick 比例；KWOK 只模拟 Kubernetes 对象；`HardPreemption` 是策略名，不代表真实驱逐或 checkpoint。Kubernetes 上实际执行副本调整、checkpoint 握手和 CPU 弹性训练的主项目见 [elastic-workload-operator](https://github.com/fei232401/elastic-workload-operator)。下文保留历史研究记录，数字应按各节的证据条件理解。
+
 > **定位**:集群层 Training↔Inference 弹性资源调度 —— 潮汐流量下训练逐级让渡 GPU 给推理、
 > 高峰保护推理 SLO、流量回落后完整归还。
 > **来源**:源于早期原型 elastic-training-inference(commit e07c46c),其 `src/`/`tests/`/`experiments/` 已逐字节复用进本仓库;+ **Experiment E**(预测误差敏感性, v2 新增)。
